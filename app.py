@@ -7,7 +7,7 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- إعدادات الصفحة (تم إرجاع القائمة الجانبية للظهور) ---
+# --- 1. إعدادات الصفحة (جعل السلايدر مفتوح افتراضياً) ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
 # --- القوائم والبيانات الثابتة ---
@@ -124,9 +124,29 @@ lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- CSS ذكي (إخفاء للمستخدمين / إظهار لـ abdulaziz) ---
-# سيتم تطبيق هذا CSS لاحقاً بعد تسجيل الدخول والتحقق من الاسم
-BASE_CSS = f"""
+# --- 2. التحكم في إخفاء/إظهار خيارات المطور (المنطق الجديد) ---
+# الافتراضي: نخفي كل شيء
+hide_dev_options = True
+
+# التحقق: إذا كان مسجل دخول واسمه abdulaziz -> نظهر الخيارات
+if 'logged_in' in st.session_state and st.session_state.logged_in:
+    if str(st.session_state.user_info.get('username', '')).lower() == 'abdulaziz':
+        hide_dev_options = False
+
+if hide_dev_options:
+    HIDE_CSS = """
+        <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        [data-testid="stToolbar"] {visibility: hidden !important;}
+        [data-testid="manage-app-button"] {display: none !important;}
+        </style>
+    """
+    st.markdown(HIDE_CSS, unsafe_allow_html=True)
+
+# --- CSS التنسيق العام وحقوق الملكية ---
+st.markdown(f"""
     <style>
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
         direction: {'rtl' if lang == 'ar' else 'ltr'}; 
@@ -148,8 +168,7 @@ BASE_CSS = f"""
     }}
     </style>
     <div class="copyright-footer">{txt['copyright']}</div>
-"""
-st.markdown(BASE_CSS, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- الاتصال بـ Google Sheets ---
 @st.cache_resource
@@ -182,29 +201,18 @@ def update_data(worksheet_name, df):
     ws.clear()
     ws.update([df.columns.values.tolist()] + df.values.tolist())
 
-# --- دالة تحديث بيانات المستخدم (الاسم/الرمز) ---
 def update_user_profile_in_db(username, new_name, new_pass):
     try:
         sh = get_connection()
         ws = sh.worksheet('users')
         data = ws.get_all_records()
-        df = pd.DataFrame(data)
-        
-        # البحث عن صف المستخدم
-        # ملاحظة: username هو العمود الأول في جوجل شيت (رقم 1)
-        # password (2), name (3)
         cell = ws.find(str(username))
-        
         if cell:
-            # تحديث كلمة المرور (العمود 2)
             ws.update_cell(cell.row, 2, str(new_pass))
-            # تحديث الاسم (العمود 3)
             ws.update_cell(cell.row, 3, new_name)
             return True
         return False
-    except Exception as e:
-        print(e)
-        return False
+    except Exception as e: return False
 
 def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
@@ -289,39 +297,21 @@ if not st.session_state.logged_in:
 else:
     info = st.session_state.user_info
     
-    # --- منطق الإخفاء (الأمان) ---
-    # إذا كان المستخدم هو "abdulaziz"، لن نخفي شيئاً.
-    # إذا كان أي شخص آخر، نخفي الهيدر والقوائم.
-    if str(info['username']).lower() == "abdulaziz":
-        pass # لا تفعل شيئاً، اظهر كل شيء للمطور/المالك
-    else:
-        # إخفاء القوائم للآخرين
-        HIDE_MENU_CSS = """
-        <style>
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        [data-testid="stToolbar"] {visibility: hidden !important;}
-        </style>
-        """
-        st.markdown(HIDE_MENU_CSS, unsafe_allow_html=True)
-
-    # --- القائمة الجانبية (معلومات + تعديل) ---
+    # --- السلايدر (Sidebar) للجميع ---
     st.sidebar.markdown(f"### 👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
     
-    # خيار تعديل البيانات في السلايدر
+    # خيار تعديل الملف الشخصي
     with st.sidebar.expander(f"🛠 {txt['edit_profile']}"):
         new_name_input = st.text_input(txt['new_name'], value=info['name'])
         new_pass_input = st.text_input(txt['new_pass'], type="password", value=info['password'])
-        
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
                 time.sleep(2)
-                st.session_state.logged_in = False # تسجيل خروج اجباري للتحديث
+                st.session_state.logged_in = False 
                 st.rerun()
-            else:
-                st.error("Error Updating")
+            else: st.error("Error Updating")
 
     if st.sidebar.button(txt['logout'], use_container_width=True):
         st.session_state.logged_in = False
@@ -334,7 +324,6 @@ else:
         reqs = load_data('requests')
         logs = load_data('stock_logs')
 
-        # --- قسم إدارة المخزون المركزي ---
         st.subheader(txt['manage_stock'])
         tab_view_ntcc, tab_view_snc = st.tabs([txt['ntcc_label'], txt['snc_label']])
         
@@ -346,19 +335,16 @@ else:
                 base_cols = ['name_ar', 'name_en', 'qty', 'unit', 'category']
                 display_cols = [c for c in base_cols if c in wh_data.columns]
                 st.dataframe(wh_data[display_cols], use_container_width=True)
-                
                 with st.expander(f"🛠 {txt['modify_stock']} ({warehouse_name})"):
                     item_options = wh_data.apply(lambda x: x[NAME_COL], axis=1)
                     sel_item = st.selectbox(f"{txt['select_item']} ({warehouse_name}):", item_options, key=f"sel_{warehouse_name}")
                     current_row = wh_data[wh_data[NAME_COL] == sel_item].iloc[0]
                     st.write(f"{txt['current_stock_display']} **{current_row['qty']}**")
-                    
                     st.write("---")
                     c_unit, c_act, c_amt = st.columns(3)
                     mgr_unit = c_unit.radio(txt['unit'], [txt['piece'], txt['carton']], key=f"u_{warehouse_name}")
                     action = c_act.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key=f"act_{warehouse_name}")
                     amount = c_amt.number_input(txt['amount'], 1, 10000, 1, key=f"amt_{warehouse_name}")
-                    
                     if st.button(txt['execute_update'], key=f"btn_{warehouse_name}", use_container_width=True):
                         change = amount if action == txt['add_stock'] else -amount
                         if update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update", mgr_unit):
@@ -443,11 +429,9 @@ else:
             else:
                 opts = wh_inv.apply(lambda x: x[NAME_COL], axis=1)
                 sel_sk = st.selectbox(txt['select_item'], opts, key="sk_it_sel")
-                
                 c_u, c_q = st.columns(2)
                 sk_unit = c_u.radio(txt['unit'], [txt['piece'], txt['carton']], key="sk_u_req", horizontal=True)
                 qty_sk = c_q.number_input(txt['qty_req'], 1, 1000, 1, key="sk_q")
-                
                 if st.button(txt['send_req'], key="sk_snd", use_container_width=True):
                     item_data = wh_inv[wh_inv[NAME_COL] == sel_sk].iloc[0]
                     save_row('requests', [
@@ -466,12 +450,10 @@ else:
                 tk_item = st.selectbox(txt['select_item'], tk_opts, key="tk_it")
                 tk_row = tgt_inv[tgt_inv[NAME_COL] == tk_item].iloc[0]
                 st.info(f"{txt['current_stock_display']} {tk_row['qty']}")
-                
                 c_tk0, c_tk1, c_tk2 = st.columns(3)
                 tk_unit = c_tk0.radio(txt['unit'], [txt['piece'], txt['carton']], key="tk_u")
                 op_tk = c_tk1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key="tk_act")
                 val_tk = c_tk2.number_input(txt['amount'], 1, 1000, 1)
-                
                 if st.button(txt['update_btn'], key="tk_save", use_container_width=True):
                     change = val_tk if op_tk == txt['add_stock'] else -val_tk
                     if update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust", tk_unit):
@@ -488,18 +470,15 @@ else:
         
         with t_req:
             req_area = st.selectbox(txt['select_area'], AREAS, key="sup_req_area")
-            
             if ntcc_items.empty:
                 st.warning(txt['no_items'])
             else:
                 with st.container(border=True):
                     opts = ntcc_items.apply(lambda x: x[NAME_COL], axis=1)
                     sel = st.selectbox(txt['select_item'], opts)
-                    
                     c_u, c_q = st.columns(2)
                     req_unit = c_u.radio(txt['unit'], [txt['piece'], txt['carton']], horizontal=True)
                     qty = c_q.number_input(txt['qty_req'], 1, 1000, 1)
-                    
                     if st.button(txt['send_req'], use_container_width=True):
                         item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
                         save_row('requests', [
@@ -531,7 +510,6 @@ else:
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
                     d_name = row['name_ar'] if lang == 'ar' else row['name_en']
                     items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
-                
                 selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
                 selected_data = next((item for item in items_list if item["disp"] == selected_item_inv), None)
                 if selected_data:
