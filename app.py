@@ -8,32 +8,38 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import extra_streamlit_components as stx
 
-# --- 1. إعدادات الصفحة ---
+# --- 1. Page Configuration ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
-# --- إدارة الجلسة ---
+# --- Session Management ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- مدير الكوكيز ---
+# --- Cookie Manager ---
 def get_manager():
     return stx.CookieManager()
 
 cookie_manager = get_manager()
 
-# --- 2. التحكم الأمني (CSS) ---
+# --- 2. Security & CSS Control ---
 def inject_security_css():
     st.markdown("""
         <style>
+        /* Hide Toolbar, Deploy, Manage App */
         [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
         .stDeployButton {visibility: hidden !important; display: none !important;}
         [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
+        
+        /* Hide Footer */
         footer {visibility: hidden !important;}
+        
+        /* Hide Decoration Line */
         [data-testid="stDecoration"] {display: none;}
         </style>
     """, unsafe_allow_html=True)
 
+# Logic: Hide by default, show only if user is 'abdulaziz'
 should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
@@ -43,9 +49,8 @@ if st.session_state.logged_in:
 if should_hide:
     inject_security_css()
 
-# --- القوائم والبيانات ---
+# --- Constants & Lists ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
-CATS_AR = ["كهربائية", "كيميائية", "أدوات يدوية", "مستهلكات", "سلامة", "أخرى"]
 LOCATIONS = ["NTCC", "SNC"]
 AREAS = [
     "Ground floor", "1st floor", 
@@ -54,119 +59,62 @@ AREAS = [
     "Service area", "OPD", "E.R", "x-rays", "neurodiagnostic"
 ]
 
-# --- الترجمة ---
-T = {
-    "ar": {
-        "app_title": "نظام المستودعات الموحد",
-        "login_page": "دخول", "register_page": "تسجيل",
-        "username": "المستخدم", "password": "كلمة المرور",
-        "fullname": "الاسم", "region": "المنطقة الرئيسية",
-        "login_btn": "دخول", "register_btn": "تسجيل جديد", "logout": "خروج",
-        "manager_role": "الإدارة", "supervisor_role": "مشرف", "storekeeper_role": "أمين مستودع",
-        "name_ar": "اسم عربي", "name_en": "اسم انجليزي", "category": "تصنيف",
-        "qty": "الكمية", "cats": CATS_AR, "location": "الموقع",
-        "requests_log": "سجل", "inventory": "المخزون",
-        "local_inv": "جردي", "local_inv_mgr": "تقارير الفروع",
-        "req_form": "طلب مواد", "select_item": "اختر المادة",
-        "current_local": "لديك:", "update_local": "تحديث",
-        "qty_req": "مطلوب", "qty_local": "فعلي",
-        "send_req": "إرسال", "update_btn": "حفظ",
-        "download_excel": "Excel", "no_items": "لا يوجد مواد متاحة",
-        "pending_reqs": "⏳ طلبات المشرفين", "approved_reqs": "📦 للصرف (مشرفين)",
-        "approve": "قبول ✅", "reject": "رفض ❌", "issue": "صرف 📦",
-        "status": "الحالة", "reason": "السبب",
-        "pending": "انتظار", "approved": "معتمد", 
-        "rejected": "مرفوض", "issued": "مصروف",
-        "err_qty": "رصيد غير كاف!",
-        "success_update": "تم التحديث",
-        "success_req": "تم الإرسال",
-        "success_issue": "تم الصرف",
-        "filter_region": "منطقة",
-        "issue_qty_input": "مصروف",
-        "manage_stock": "📦 مراقبة وجرد المستودعات المركزية",
-        "select_action": "إجراء",
-        "add_stock": "إضافة (+)", "reduce_stock": "سحب (-)",
-        "amount": "عدد",
-        "current_stock_display": "رصيد:", "new_stock_display": "جديد:",
-        "execute_update": "تحديث",
-        "error_login": "خطأ بيانات", "success_reg": "تم التسجيل",
-        "stock_take_central": "📝 جرد مركزي",
-        "sk_request": "📥 طلب خاص (أمين المستودع)",
-        "source_wh": "اختر المستودع",
-        "ntcc_label": "داخلي (NTCC)", "snc_label": "خارجي (SNC)",
-        "logs": "سجل الحركات",
-        "modify_stock": "تعديل / جرد",
-        "stock_monitor": "مراقبة المخزون",
-        "copyright": "جميع الحقوق محفوظة © لمساعد مدير مشروع الأعصاب عبدالعزيز الحازمي. يمنع النشر أو الاستغلال بدون إذن.",
-        "select_area": "📍 القسم / المنطقة المستهدفة",
-        "area_label": "القسم",
-        "unit": "الوحدة", "piece": "حبة", "carton": "كرتون",
-        "edit_profile": "تعديل بياناتي", "new_name": "الاسم الجديد", "new_pass": "كلمة المرور الجديدة", "save_changes": "حفظ التغييرات", "profile_updated": "تم تحديث البيانات بنجاح، الرجاء تسجيل الدخول مجدداً"
-    },
-    "en": {
-        "app_title": "Unified WMS System",
-        "login_page": "Login", "register_page": "Register",
-        "username": "Username", "password": "Password",
-        "fullname": "Name", "region": "Main Region",
-        "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
-        "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
-        "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
-        "qty": "Qty", "cats": CATS_EN, "location": "Location",
-        "requests_log": "Log", "inventory": "Inventory",
-        "local_inv": "My Stock", "local_inv_mgr": "Branch Reports",
-        "req_form": "Request", "select_item": "Select Item",
-        "current_local": "You have:", "update_local": "Update",
-        "qty_req": "Request Qty", "qty_local": "Actual Qty",
-        "send_req": "Send", "update_btn": "Save",
-        "download_excel": "Excel", "no_items": "No items available",
-        "pending_reqs": "⏳ Supervisor Requests", "approved_reqs": "📦 To Issue",
-        "approve": "Approve ✅", "reject": "Reject ❌", "issue": "Issue 📦",
-        "status": "Status", "reason": "Reason",
-        "pending": "Pending", "approved": "Approved", 
-        "rejected": "Rejected", "issued": "Issued",
-        "err_qty": "Low Stock!",
-        "success_update": "Updated",
-        "success_req": "Sent",
-        "success_issue": "Issued",
-        "filter_region": "Region",
-        "issue_qty_input": "Issued Qty",
-        "manage_stock": "📦 Central Stock Monitor & Count",
-        "select_action": "Action",
-        "add_stock": "Add (+)", "reduce_stock": "Remove (-)",
-        "amount": "Amount",
-        "current_stock_display": "Current:", "new_stock_display": "New:",
-        "execute_update": "Update",
-        "error_login": "Invalid", "success_reg": "Registered",
-        "stock_take_central": "📝 Central Stock Take",
-        "sk_request": "📥 Store Keeper Request",
-        "source_wh": "Select Warehouse",
-        "ntcc_label": "Internal (NTCC)", "snc_label": "External (SNC)",
-        "logs": "Activity Logs",
-        "modify_stock": "Modify / Stock Take",
-        "stock_monitor": "Stock Monitor",
-        "copyright": "All rights reserved © to Assistant Project Manager of Nerves Project, Abdulaziz Alhazmi. Unauthorized use prohibited.",
-        "select_area": "📍 Target Area / Section",
-        "area_label": "Area",
-        "unit": "Unit", "piece": "Piece", "carton": "Carton",
-        "edit_profile": "Edit Profile", "new_name": "New Name", "new_pass": "New Password", "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again"
-    }
+# --- English Text Dictionary ---
+txt = {
+    "app_title": "Unified WMS System",
+    "login_page": "Login", "register_page": "Register",
+    "username": "Username", "password": "Password",
+    "fullname": "Full Name", "region": "Main Region",
+    "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
+    "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
+    "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
+    "qty": "Qty", "cats": CATS_EN, "location": "Location",
+    "requests_log": "Log", "inventory": "Inventory",
+    "local_inv": "My Stock", "local_inv_mgr": "Branch Reports",
+    "req_form": "Request", "select_item": "Select Item",
+    "current_local": "You have:", "update_local": "Update",
+    "qty_req": "Request Qty", "qty_local": "Actual Qty",
+    "send_req": "Send", "update_btn": "Save",
+    "download_excel": "Export Excel", "no_items": "No items available",
+    "pending_reqs": "⏳ Supervisor Requests", "approved_reqs": "📦 To Issue",
+    "approve": "Approve ✅", "reject": "Reject ❌", "issue": "Issue 📦",
+    "status": "Status", "reason": "Reason",
+    "pending": "Pending", "approved": "Approved", 
+    "rejected": "Rejected", "issued": "Issued",
+    "err_qty": "Low Stock!",
+    "success_update": "Updated successfully",
+    "success_req": "Request Sent",
+    "success_issue": "Issued successfully",
+    "filter_region": "Region",
+    "issue_qty_input": "Issued Qty",
+    "manage_stock": "📦 Central Stock Monitor & Count",
+    "select_action": "Action",
+    "add_stock": "Add (+)", "reduce_stock": "Remove (-)",
+    "amount": "Amount",
+    "current_stock_display": "Current:", "new_stock_display": "New:",
+    "execute_update": "Update",
+    "error_login": "Invalid Username or Password", "success_reg": "Registered successfully",
+    "stock_take_central": "📝 Central Stock Take",
+    "sk_request": "📥 Store Keeper Request",
+    "source_wh": "Select Warehouse",
+    "ntcc_label": "Internal (NTCC)", "snc_label": "External (SNC)",
+    "logs": "Activity Logs",
+    "modify_stock": "Modify / Stock Take",
+    "stock_monitor": "Stock Monitor",
+    "copyright": "All rights reserved © to Assistant Project Manager of Nerves Project, Abdulaziz Alhazmi. Unauthorized use prohibited.",
+    "select_area": "📍 Target Area / Section",
+    "area_label": "Area",
+    "unit": "Unit", "piece": "Piece", "carton": "Carton",
+    "edit_profile": "Edit Profile", "new_name": "New Name", "new_pass": "New Password", 
+    "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again"
 }
 
-lang_choice = st.sidebar.selectbox("Language / اللغة", ["العربية", "English"])
-lang = "ar" if lang_choice == "العربية" else "en"
-txt = T[lang]
-NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
+# --- Settings ---
+NAME_COL = 'name_en'  # Force English Name Column
 
+# --- General CSS & Copyright Footer ---
 st.markdown(f"""
     <style>
-    .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
-        direction: {'rtl' if lang == 'ar' else 'ltr'}; 
-        text-align: {'right' if lang == 'ar' else 'left'}; 
-    }}
-    [data-testid="stSidebarUserContent"] {{ 
-        direction: {'rtl' if lang == 'ar' else 'ltr'}; 
-        text-align: {'right' if lang == 'ar' else 'left'}; 
-    }}
     .stButton button {{ width: 100%; }}
     .copyright-footer {{
         position: fixed; left: 10px; bottom: 5px;
@@ -181,7 +129,7 @@ st.markdown(f"""
     <div class="copyright-footer">{txt['copyright']}</div>
 """, unsafe_allow_html=True)
 
-# --- الاتصال بـ Google Sheets ---
+# --- Google Sheets Connection ---
 @st.cache_resource
 def get_connection():
     try:
@@ -224,7 +172,6 @@ def update_user_profile_in_db(username, new_name, new_pass):
         return False
     except Exception as e: return False
 
-# --- دالة التحديث القوية (Robust Update Function) ---
 def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
         sh = get_connection()
@@ -233,21 +180,17 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
         inv_data = ws_inv.get_all_records()
         df_inv = pd.DataFrame(inv_data)
         
-        # تنظيف البيانات قبل المقارنة (إزالة المسافات)
+        # Clean data for comparison
         target_item = str(item_en).strip().lower()
         target_loc = str(location).strip().lower()
         
-        # إنشاء أعمدة مؤقتة للمقارنة
         df_inv['clean_name'] = df_inv['name_en'].astype(str).str.strip().str.lower()
         df_inv['clean_loc'] = df_inv['location'].astype(str).str.strip().str.lower()
         
-        # البحث
         mask = (df_inv['clean_name'] == target_item) & (df_inv['clean_loc'] == target_loc)
         
         if mask.any():
             idx = df_inv.index[mask][0]
-            
-            # معالجة الكمية الحالية بأمان
             raw_qty = df_inv.at[idx, 'qty']
             try:
                 current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
@@ -255,8 +198,6 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
                 current_qty = 0
                 
             new_qty = max(0, current_qty + change_qty)
-            
-            # تحديث الخلية (العمود 4 هو Qty)
             ws_inv.update_cell(idx + 2, 4, new_qty) 
             
             log_desc = f"{action_desc} ({unit_type})"
@@ -276,7 +217,6 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         df = pd.DataFrame(data)
         
         if not df.empty:
-            # تنظيف للمقارنة
             df['clean_reg'] = df['region'].astype(str).str.strip()
             df['clean_item'] = df['item_en'].astype(str).str.strip()
             mask = (df['clean_reg'] == str(region).strip()) & (df['clean_item'] == str(item_en).strip())
@@ -291,7 +231,7 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         return True
     except: return False
 
-# --- الكوكيز ---
+# --- Cookie Auto-Login ---
 if not st.session_state.logged_in:
     cookie_user = cookie_manager.get(cookie="wms_user_pro")
     if cookie_user:
@@ -304,7 +244,7 @@ if not st.session_state.logged_in:
                 st.session_state.user_info = match.iloc[0].to_dict()
                 st.rerun()
 
-# === تسجيل الدخول ===
+# === LOGIN PAGE ===
 if not st.session_state.logged_in:
     st.title(f"🔐 {txt['app_title']}")
     t1, t2 = st.tabs([txt['login_page'], txt['register_page']])
@@ -339,9 +279,9 @@ if not st.session_state.logged_in:
                 if not exists and nu:
                     save_row('users', [nu, np, nn, 'supervisor', nr])
                     st.success(txt['success_reg'])
-                else: st.error("Error")
+                else: st.error("User already exists")
 
-# === النظام الرئيسي ===
+# === MAIN SYSTEM ===
 else:
     info = st.session_state.user_info
     
@@ -365,7 +305,7 @@ else:
         cookie_manager.delete("wms_user_pro")
         st.rerun()
 
-    # ================= 1. واجهة المدير =================
+    # ================= 1. MANAGER VIEW =================
     if info['role'] == 'manager':
         st.header(txt['manager_role'])
         inv = load_data('inventory')
@@ -417,7 +357,7 @@ else:
                     region_reqs = pending_all[pending_all['region'] == region]
                     for index, row in region_reqs.iterrows():
                         with st.container(border=True):
-                            disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
+                            disp_name = row['name_en'] # Always English
                             st.markdown(f"**📦 {disp_name}**")
                             req_u = row['unit'] if 'unit' in row else '-'
                             st.caption(f"{txt['area_label']}: **{row['region']}** | {txt['qty']}: **{row['qty']} ({req_u})**")
@@ -435,7 +375,7 @@ else:
         with st.expander(f"📜 {txt['logs']}"):
             if not logs.empty: st.dataframe(logs, use_container_width=True)
 
-    # ================= 2. واجهة أمين المستودع =================
+    # ================= 2. STORE KEEPER VIEW =================
     elif info['role'] == 'storekeeper':
         st.header(txt['storekeeper_role'])
         reqs = load_data('requests')
@@ -449,7 +389,7 @@ else:
             else:
                 for index, row in approved.iterrows():
                     with st.container(border=True):
-                        disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
+                        disp_name = row['name_en'] # Always English
                         st.markdown(f"**📦 {disp_name}**")
                         req_u = row['unit'] if 'unit' in row else '-'
                         st.caption(f"📍 {row['region']} | {txt['qty_req']}: **{row['qty']} ({req_u})**")
@@ -457,31 +397,26 @@ else:
                         issue_qty = st.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iq_{row['req_id']}")
                         
                         if st.button(txt['issue'], key=f"btn_is_{row['req_id']}", use_container_width=True):
-                            # هنا الإصلاح الرئيسي: التحقق من النتيجة وعرض الخطأ
                             status, msg = update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}", req_u)
                             if status:
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['issued']
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'qty'] = issue_qty
                                 update_data('requests', reqs)
-                                # تحديث محلي آمن
                                 try:
                                     local_inv_df = load_data('local_inventory')
                                     cur = 0
                                     if not local_inv_df.empty:
-                                        # تنظيف للمقارنة
                                         local_inv_df['clean_reg'] = local_inv_df['region'].astype(str).str.strip()
                                         local_inv_df['clean_item'] = local_inv_df['item_en'].astype(str).str.strip()
                                         m = local_inv_df[(local_inv_df['clean_reg']==str(row['region']).strip()) & (local_inv_df['clean_item']==str(row['item_en']).strip())]
                                         if not m.empty: cur = int(m.iloc[0]['qty'])
                                     update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], cur + issue_qty)
                                 except: pass 
-                                
                                 st.success("OK")
                                 time.sleep(1)
                                 st.rerun()
                             else: 
-                                st.error(f"خطأ في الصرف: {msg}")
-                                st.caption("تأكد من وجود المادة في مستودع NTCC بنفس الاسم الإنجليزي وتوفر الكمية")
+                                st.error(f"Error: {msg}")
 
         with tab_req_sk:
             wh_source = st.selectbox(txt['source_wh'], ["NTCC", "SNC"], key="sk_src_sel")
@@ -525,7 +460,7 @@ else:
                         st.rerun()
                     else: st.error(msg)
 
-    # ================= 3. واجهة المشرف (NTCC فقط) =================
+    # ================= 3. SUPERVISOR VIEW (NTCC ONLY) =================
     else:
         t_req, t_inv = st.tabs([txt['req_form'], txt['local_inv']])
         inv = load_data('inventory')
@@ -558,8 +493,15 @@ else:
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
-                disp_df = my_reqs[['item_ar' if lang=='ar' else 'item_en', 'qty', 'unit' if 'unit' in my_reqs.columns else 'status', 'status', 'region']]
-                st.dataframe(disp_df, use_container_width=True)
+                # Ensure column names exist before selecting
+                cols_to_show = ['name_en', 'qty', 'status', 'region']
+                if 'unit' in my_reqs.columns: cols_to_show.insert(2, 'unit')
+                
+                # Check if 'name_en' is available in requests (it was saved as item_en)
+                if 'item_en' in my_reqs.columns:
+                    my_reqs = my_reqs.rename(columns={'item_en': 'name_en'})
+                
+                st.dataframe(my_reqs[[c for c in cols_to_show if c in my_reqs.columns]], use_container_width=True)
 
         with t_inv:
             view_area = st.selectbox(txt['select_area'], AREAS, key="sup_view_area")
@@ -570,19 +512,19 @@ else:
                 for idx, row in ntcc_items.iterrows():
                     current_qty = 0
                     if not local_inv.empty:
-                        # تنظيف المقارنة
                         local_inv['clean_reg'] = local_inv['region'].astype(str).str.strip()
                         local_inv['clean_item'] = local_inv['item_en'].astype(str).str.strip()
                         match = local_inv[(local_inv['clean_reg'] == str(view_area).strip()) & (local_inv['clean_item'] == str(row['name_en']).strip())]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
-                    d_name = row['name_ar'] if lang == 'ar' else row['name_en']
+                    d_name = row['name_en'] # English Name
                     items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
+                
                 selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
                 selected_data = next((item for item in items_list if item["disp"] == selected_item_inv), None)
                 if selected_data:
                     with st.container(border=True):
                         st.markdown(f"**{selected_data['disp']}**")
-                        st.caption(f"{txt['current_local']} {selected_data['current_qty']} (في {view_area})")
+                        st.caption(f"{txt['current_local']} {selected_data['current_qty']} (in {view_area})")
                         new_val = st.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'])
                         if st.button(txt['update_btn'], use_container_width=True):
                             update_local_inventory_record(view_area, selected_data['name_en'], selected_data['name_ar'], new_val)
