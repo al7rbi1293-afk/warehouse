@@ -1,6 +1,5 @@
+sqlalchemy
+psycopg2-binary
+extra-streamlit-components
 streamlit
 pandas
-gspread
-oauth2client
-openpyxl
-extra-streamlit-components
