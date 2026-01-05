@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import uuid
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import extra_streamlit_components as stx # مكتبة الكوكيز الجديدة
 
 # --- 1. إعدادات الصفحة (السلايدر مفتوح للجميع) ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
@@ -15,48 +16,31 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- 2. التحكم الأمني الصارم (CSS) ---
-# المنطق: نخفي العناصر المحددة (Toolbar, Manage App, Footer) للجميع
-# ولكن لا نلمس الـ Header الأساسي لكي لا يختفي زر السلايدر
+# --- إعداد مدير الكوكيز (Cookie Manager) ---
+# هذا الجزء هو المسؤول عن حفظ تسجيل الدخول
+def get_manager():
+    return stx.CookieManager()
 
+cookie_manager = get_manager()
+
+# --- 2. التحكم الأمني الصارم (CSS) ---
 def inject_security_css():
     st.markdown("""
         <style>
-        /* إخفاء القائمة العلوية اليمين (3 نقاط) */
-        [data-testid="stToolbar"] {
-            visibility: hidden !important;
-            display: none !important;
-        }
-        
-        /* إخفاء زر Deploy */
-        .stDeployButton {
-            visibility: hidden !important;
-            display: none !important;
-        }
-        
-        /* إخفاء زر Manage App المزعج */
-        [data-testid="manage-app-button"] {
-            visibility: hidden !important;
-            display: none !important;
-        }
-        
-        /* إخفاء الفوتر الافتراضي */
+        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        .stDeployButton {visibility: hidden !important; display: none !important;}
+        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
         footer {visibility: hidden !important;}
-        
-        /* إخفاء الخط الملون العلوي */
         [data-testid="stDecoration"] {display: none;}
-        
-        /* هام جداً: لا نخفي header بالكامل لضمان بقاء زر السلايدر ظاهراً */
         </style>
     """, unsafe_allow_html=True)
 
-# تطبيق المنطق:
-should_hide = True # الافتراضي: إخفاء
-
+# تطبيق المنطق الأمني
+should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
     if username == 'abdulaziz':
-        should_hide = False # إذا كان المطور، لا تخفي شيئاً
+        should_hide = False
 
 if should_hide:
     inject_security_css()
@@ -170,13 +154,12 @@ T = {
     }
 }
 
-# --- اختيار اللغة (في السلايدر ليظهر للجميع) ---
 lang_choice = st.sidebar.selectbox("Language / اللغة", ["العربية", "English"])
 lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- CSS التنسيق العام وحقوق الملكية ---
+# --- CSS وتذييل الحقوق ---
 st.markdown(f"""
     <style>
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
@@ -283,6 +266,21 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         return True
     except: return False
 
+# --- استرجاع الجلسة من الكوكيز (الخطوة الجديدة) ---
+if not st.session_state.logged_in:
+    # محاولة قراءة الكوكيز
+    cookie_user = cookie_manager.get(cookie="wms_user_pro")
+    if cookie_user:
+        # إذا وجدنا كوكيز، نتأكد من قاعدة البيانات
+        users = load_data('users')
+        if not users.empty:
+            users['username'] = users['username'].astype(str)
+            match = users[users['username'] == str(cookie_user)]
+            if not match.empty:
+                st.session_state.logged_in = True
+                st.session_state.user_info = match.iloc[0].to_dict()
+                st.rerun()
+
 # === تسجيل الدخول ===
 if not st.session_state.logged_in:
     st.title(f"🔐 {txt['app_title']}")
@@ -298,15 +296,18 @@ if not st.session_state.logged_in:
                     users['password'] = users['password'].astype(str)
                     match = users[(users['username']==u) & (users['password']==p)]
                     if not match.empty:
+                        # تسجيل دخول ناجح
                         st.session_state.logged_in = True
                         st.session_state.user_info = match.iloc[0].to_dict()
+                        # حفظ الكوكيز لمدة 7 أيام
+                        cookie_manager.set("wms_user_pro", u, expires_at=datetime.now() + timedelta(days=7))
                         st.rerun()
                     else: st.error(txt['error_login'])
                 else: st.error("DB Error")
     with t2:
         with st.form("reg"):
-            nu = st.text_input(txt['username']).strip()
-            np = st.text_input(txt['password'], type='password').strip()
+            nu = st.text_input(txt['username'], key='r_u').strip()
+            np = st.text_input(txt['password'], type='password', key='r_p').strip()
             nn = st.text_input(txt['fullname'])
             nr = st.text_input(txt['region'])
             if st.form_submit_button(txt['register_btn'], use_container_width=True):
@@ -323,17 +324,18 @@ if not st.session_state.logged_in:
 else:
     info = st.session_state.user_info
     
-    # --- السلايدر (Sidebar) للجميع ---
+    # --- السلايدر (Sidebar) ---
     st.sidebar.markdown(f"### 👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
     
-    # خيار تعديل الملف الشخصي
     with st.sidebar.expander(f"🛠 {txt['edit_profile']}"):
         new_name_input = st.text_input(txt['new_name'], value=info['name'])
         new_pass_input = st.text_input(txt['new_pass'], type="password", value=info['password'])
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
+                # حذف الكوكيز لتسجيل الدخول الجديد
+                cookie_manager.delete("wms_user_pro")
                 time.sleep(2)
                 st.session_state.logged_in = False 
                 st.rerun()
@@ -341,6 +343,8 @@ else:
 
     if st.sidebar.button(txt['logout'], use_container_width=True):
         st.session_state.logged_in = False
+        # حذف الكوكيز عند الخروج
+        cookie_manager.delete("wms_user_pro")
         st.rerun()
 
     # ================= 1. واجهة المدير =================
