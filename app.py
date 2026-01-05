@@ -26,27 +26,6 @@ def get_manager():
 
 cookie_manager = get_manager()
 
-# --- 2. CSS & Security Control ---
-def inject_security_css():
-    st.markdown("""
-        <style>
-        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-        .stDeployButton {visibility: hidden !important; display: none !important;}
-        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        footer {visibility: hidden !important;}
-        [data-testid="stDecoration"] {display: none;}
-        </style>
-    """, unsafe_allow_html=True)
-
-should_hide = True
-if st.session_state.logged_in:
-    username = str(st.session_state.user_info.get('username', '')).lower()
-    if username == 'abdulaziz':
-        should_hide = False
-
-if should_hide:
-    inject_security_css()
-
 # --- Constants ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
