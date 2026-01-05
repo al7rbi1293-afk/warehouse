@@ -9,6 +9,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import extra_streamlit_components as stx
 
 # --- 1. Page Configuration ---
+# السلايدر مفتوح للجميع
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
 # --- Session Management ---
@@ -22,33 +23,6 @@ def get_manager():
 
 cookie_manager = get_manager()
 
-# --- 2. Security & CSS Control ---
-def inject_security_css():
-    st.markdown("""
-        <style>
-        /* Hide Toolbar, Deploy, Manage App */
-        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-        .stDeployButton {visibility: hidden !important; display: none !important;}
-        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        
-        /* Hide Footer */
-        footer {visibility: hidden !important;}
-        
-        /* Hide Decoration Line */
-        [data-testid="stDecoration"] {display: none;}
-        </style>
-    """, unsafe_allow_html=True)
-
-# Logic: Hide by default, show only if user is 'abdulaziz'
-should_hide = True
-if st.session_state.logged_in:
-    username = str(st.session_state.user_info.get('username', '')).lower()
-    if username == 'abdulaziz':
-        should_hide = False
-
-if should_hide:
-    inject_security_css()
-
 # --- Constants & Lists ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
@@ -59,7 +33,7 @@ AREAS = [
     "Service area", "OPD", "E.R", "x-rays", "neurodiagnostic"
 ]
 
-# --- English Text Dictionary ---
+# --- English Text Dictionary (Default & Only) ---
 txt = {
     "app_title": "Unified WMS System",
     "login_page": "Login", "register_page": "Register",
@@ -110,9 +84,10 @@ txt = {
 }
 
 # --- Settings ---
-NAME_COL = 'name_en'  # Force English Name Column
+NAME_COL = 'name_en'  # Always English
 
 # --- General CSS & Copyright Footer ---
+# تم حذف أكواد الإخفاء (Hidden Visibility) الخاصة بالهيدر والتولبار
 st.markdown(f"""
     <style>
     .stButton button {{ width: 100%; }}
@@ -285,6 +260,7 @@ if not st.session_state.logged_in:
 else:
     info = st.session_state.user_info
     
+    # قائمة جانبية (بدون خيار لغة)
     st.sidebar.markdown(f"### 👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
     
