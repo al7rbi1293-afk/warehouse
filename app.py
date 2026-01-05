@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 import io
 import uuid
-import time # مكتبة للانتظار قليلاً
+import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -19,7 +19,7 @@ def get_cat_key(selection):
     elif selection in CATS_AR: return CATS_EN[CATS_AR.index(selection)]
     return "Others"
 
-# --- الترجمة ---
+# --- الترجمة (تم التأكد من وجود المفاتيح المفقودة) ---
 T = {
     "ar": {
         "app_title": "نظام إدارة المستودعات والمخزون المحلي",
@@ -49,7 +49,10 @@ T = {
         "err_qty": "الكمية في المخزون المركزي غير كافية!",
         "success_update": "تم تحديث جرد المنطقة بنجاح",
         "success_req": "تم إرسال الطلب بنجاح",
-        "filter_region": "تصفية حسب المنطقة"
+        "success_reg": "تم التسجيل بنجاح! يمكنك الدخول الآن",  # <-- هذا هو المفتاح الذي كان ناقصاً
+        "filter_region": "تصفية حسب المنطقة",
+        "error_login": "بيانات الدخول غير صحيحة",
+        "success_add": "تمت الإضافة بنجاح"
     },
     "en": {
         "app_title": "Warehouse & Local Inventory System",
@@ -79,7 +82,10 @@ T = {
         "err_qty": "Insufficient Central Stock!",
         "success_update": "Local stock updated successfully",
         "success_req": "Request sent successfully",
-        "filter_region": "Filter by Region"
+        "success_reg": "Registered successfully! Please login.", # <-- المفتاح الناقص
+        "filter_region": "Filter by Region",
+        "error_login": "Invalid credentials",
+        "success_add": "Added Successfully"
     }
 }
 
@@ -93,63 +99,71 @@ else:
     st.markdown("<style>.stApp {direction: ltr; text-align: left;}</style>", unsafe_allow_html=True)
 
 # --- الاتصال بـ Google Sheets ---
-# نستخدم التخزين المؤقت للاتصال فقط، وليس للبيانات، لضمان السرعة مع التحديث
 @st.cache_resource
 def get_connection():
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open("WMS_Database")
-    return sheet
+    try:
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("WMS_Database")
+        return sheet
+    except Exception as e:
+        st.error(f"Error connecting to Google Sheets: {e}")
+        return None
 
-# إزالة الكاش عن البيانات لضمان جلب أحدث نسخة دائماً عند التحديث
 def load_data(worksheet_name):
     try:
         sh = get_connection()
-        ws = sh.worksheet(worksheet_name)
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
-        if worksheet_name == 'users' and not df.empty:
-            df['username'] = df['username'].astype(str)
-            df['password'] = df['password'].astype(str)
-        return df
+        if sh:
+            ws = sh.worksheet(worksheet_name)
+            data = ws.get_all_records()
+            df = pd.DataFrame(data)
+            if worksheet_name == 'users' and not df.empty:
+                df['username'] = df['username'].astype(str)
+                df['password'] = df['password'].astype(str)
+            return df
+        return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
 
 def save_row(worksheet_name, row_data_list):
     sh = get_connection()
-    ws = sh.worksheet(worksheet_name)
-    ws.append_row(row_data_list)
+    if sh:
+        ws = sh.worksheet(worksheet_name)
+        ws.append_row(row_data_list)
 
 def update_data(worksheet_name, df):
     sh = get_connection()
-    ws = sh.worksheet(worksheet_name)
-    ws.clear()
-    ws.update([df.columns.values.tolist()] + df.values.tolist())
+    if sh:
+        ws = sh.worksheet(worksheet_name)
+        ws.clear()
+        ws.update([df.columns.values.tolist()] + df.values.tolist())
 
 def update_local_inventory_record(region, item_en, item_ar, new_qty):
     try:
         sh = get_connection()
-        ws = sh.worksheet('local_inventory')
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
-        
-        if not df.empty:
-            mask = (df['region'] == region) & (df['item_en'] == item_en)
-        else:
-            mask = pd.Series([False])
+        if sh:
+            ws = sh.worksheet('local_inventory')
+            data = ws.get_all_records()
+            df = pd.DataFrame(data)
+            
+            if not df.empty:
+                mask = (df['region'] == region) & (df['item_en'] == item_en)
+            else:
+                mask = pd.Series([False])
 
-        if mask.any():
-            row_idx = df.index[mask][0]
-            cell_row = row_idx + 2 
-            ws.update_cell(cell_row, 4, int(new_qty))
-            ws.update_cell(cell_row, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
-        else:
-            ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
-        return True
+            if mask.any():
+                row_idx = df.index[mask][0]
+                cell_row = row_idx + 2 
+                ws.update_cell(cell_row, 4, int(new_qty))
+                ws.update_cell(cell_row, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
+            else:
+                ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
+            return True
+        return False
     except Exception as e:
-        st.error(f"Error updating local inventory: {e}")
+        st.error(f"Error: {e}")
         return False
 
 # --- إدارة الجلسة ---
@@ -174,7 +188,7 @@ if not st.session_state.logged_in:
                         st.session_state.user_info = match.iloc[0].to_dict()
                         st.rerun()
                     else: st.error(txt['error_login'])
-                else: st.error("Database Error")
+                else: st.error("Database Error (Check Connection)")
     with t2:
         with st.form("reg"):
             nu = st.text_input(txt['username'], key='r_u').strip()
@@ -183,10 +197,16 @@ if not st.session_state.logged_in:
             nr = st.text_input(txt['region'])
             if st.form_submit_button(txt['register_btn']):
                 users = load_data('users')
-                if nu not in users['username'].astype(str).values and nu:
+                # التأكد من عدم وجود المستخدم
+                user_exists = False
+                if not users.empty:
+                    if nu in users['username'].astype(str).values:
+                        user_exists = True
+                
+                if not user_exists and nu:
                     save_row('users', [nu, np, nn, 'supervisor', nr])
                     st.success(txt['success_reg'])
-                else: st.error("User exists or empty")
+                else: st.error("User exists or field empty")
 
 # === التطبيق الرئيسي ===
 else:
@@ -203,7 +223,6 @@ else:
     if info['role'] == 'manager':
         st.header(f"👨‍💼 {txt['manager_role']}")
         
-        # تحميل البيانات
         reqs = load_data('requests')
         inv = load_data('inventory')
         
@@ -242,8 +261,8 @@ else:
                                 update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], current_local)
                                 
                                 st.success("Approved")
-                                time.sleep(1) # تأخير بسيط للسماح لجوجل بالحفظ
-                                st.rerun() # تحديث الصفحة تلقائياً
+                                time.sleep(1)
+                                st.rerun()
                             else: st.error(txt['err_qty'])
                         else: st.error("Item missing")
                     
@@ -255,7 +274,7 @@ else:
                             update_data('requests', reqs)
                             st.warning("Rejected")
                             time.sleep(1)
-                            st.rerun() # تحديث الصفحة تلقائياً
+                            st.rerun()
                         else: st.error("Reason required")
 
         st.markdown("---")
@@ -288,9 +307,9 @@ else:
             if st.button(txt['add_item']):
                 if na and ne:
                     save_row('inventory', [na, ne, get_cat_key(cat), q, 'Available'])
-                    st.success("Added")
+                    st.success(txt['success_add'])
                     time.sleep(1)
-                    st.rerun() # تحديث الصفحة تلقائياً
+                    st.rerun()
 
     # ================= واجهة المشرف =================
     else:
@@ -298,7 +317,7 @@ else:
         
         inv = load_data('inventory')
         local_inv = load_data('local_inventory')
-        avail_items = inv[inv['status'] == 'Available']
+        avail_items = inv[inv['status'] == 'Available'] if not inv.empty else pd.DataFrame()
         
         if avail_items.empty:
             st.warning(txt['no_items'])
@@ -333,7 +352,7 @@ else:
                             ])
                             st.success(txt['success_req'])
                             time.sleep(1)
-                            st.rerun() # تحديث الصفحة تلقائياً
+                            st.rerun()
                         else:
                             st.warning("الكمية 0")
 
@@ -345,7 +364,7 @@ else:
                         if update_local_inventory_record(info['region'], item_data['name_en'], item_data['name_ar'], new_local_qty):
                             st.success(txt['success_update'])
                             time.sleep(1)
-                            st.rerun() # تحديث الصفحة تلقائياً
+                            st.rerun()
 
         st.markdown("---")
         st.subheader("📋 حالة طلباتي السابقة")
