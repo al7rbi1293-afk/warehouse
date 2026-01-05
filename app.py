@@ -26,22 +26,14 @@ cookie_manager = get_manager()
 def inject_security_css():
     st.markdown("""
         <style>
-        /* Hide Toolbar (3 dots), Deploy button, and Manage App button ONLY */
         [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
         .stDeployButton {visibility: hidden !important; display: none !important;}
         [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        
-        /* Hide Footer */
         footer {visibility: hidden !important;}
-        
-        /* Hide Top Decoration */
         [data-testid="stDecoration"] {display: none;}
-        
-        /* NOTE: We do NOT hide the full header to keep the Sidebar Toggle visible */
         </style>
     """, unsafe_allow_html=True)
 
-# Apply security settings (Hide by default, Show for 'abdulaziz')
 should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
@@ -51,7 +43,7 @@ if st.session_state.logged_in:
 if should_hide:
     inject_security_css()
 
-# --- Constants ---
+# --- Constants & Lists ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
 AREAS = [
@@ -60,9 +52,8 @@ AREAS = [
     "Ward 30", "Ward 31", "Ward 40", "Ward 41", "Ward 50", "Ward 51",
     "Service area", "OPD", "E.R", "x-rays", "neurodiagnostic"
 ]
-NAME_COL = 'name_en'
 
-# --- English Dictionary ---
+# --- English Text Dictionary ---
 txt = {
     "app_title": "Unified WMS System",
     "login_page": "Login", "register_page": "Register",
@@ -116,6 +107,8 @@ txt = {
     "cancel_confirm": "Deleted successfully"
 }
 
+NAME_COL = 'name_en'
+
 # --- General CSS ---
 st.markdown(f"""
     <style>
@@ -133,7 +126,7 @@ st.markdown(f"""
     <div class="copyright-footer">{txt['copyright']}</div>
 """, unsafe_allow_html=True)
 
-# --- Google Sheets Connection (Cached Client Only) ---
+# --- Google Sheets Connection ---
 @st.cache_resource
 def get_connection():
     try:
@@ -145,19 +138,15 @@ def get_connection():
         return sheet
     except: return None
 
-# --- Data Loading (NO CACHE to fix real-time issues) ---
 def load_data(worksheet_name):
     try:
         sh = get_connection()
         ws = sh.worksheet(worksheet_name)
         data = ws.get_all_records()
         df = pd.DataFrame(data)
-        
-        # Standardize Columns to avoid KeyError
         if not df.empty:
             if 'item_en' in df.columns: df = df.rename(columns={'item_en': 'name_en'})
             if 'item_ar' in df.columns: df = df.rename(columns={'item_ar': 'name_ar'})
-            # Clean strings
             if 'status' in df.columns: df['status'] = df['status'].astype(str).str.strip()
             if 'region' in df.columns: df['region'] = df['region'].astype(str).str.strip()
         return df
@@ -186,16 +175,18 @@ def update_user_profile_in_db(username, new_name, new_pass):
         return False
     except: return False
 
-# --- Request Management Functions (Edit/Delete) ---
+# --- FIXED UPDATE FUNCTION (Matches Image Columns) ---
 def update_request_data(req_id, new_qty, new_unit):
     try:
         sh = get_connection()
         ws = sh.worksheet('requests')
         cell = ws.find(str(req_id))
         if cell:
-            # Qty is col 7, Unit is col 11
-            ws.update_cell(cell.row, 7, int(new_qty))
-            ws.update_cell(cell.row, 11, str(new_unit))
+            # Based on image mapping:
+            # A=1 (id), B=2 (sup), C=3 (reg), D=4 (item), E=5 (cat)
+            # F=6 (QTY), G=7 (date), H=8 (status), I=9 (reason), J=10 (UNIT)
+            ws.update_cell(cell.row, 6, int(new_qty))  # Update Qty (Col F)
+            ws.update_cell(cell.row, 10, str(new_unit)) # Update Unit (Col J)
             return True
         return False
     except: return False
@@ -211,7 +202,6 @@ def delete_request_data(req_id):
         return False
     except: return False
 
-# --- Inventory Logic ---
 def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
         sh = get_connection()
@@ -220,7 +210,6 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
         inv_data = ws_inv.get_all_records()
         df_inv = pd.DataFrame(inv_data)
         
-        # Normalize for comparison
         target_item = str(item_en).strip().lower()
         target_loc = str(location).strip().lower()
         
@@ -235,7 +224,6 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
             try:
                 current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
             except: current_qty = 0
-                
             new_qty = max(0, current_qty + change_qty)
             ws_inv.update_cell(idx + 2, 4, new_qty) 
             
@@ -257,7 +245,6 @@ def update_local_inventory_record(region, item_en, new_qty):
         
         if not df.empty:
             df['clean_reg'] = df['region'].astype(str).str.strip()
-            # Normalize column search
             col_name = 'item_en' if 'item_en' in df.columns else 'name_en'
             df['clean_item'] = df[col_name].astype(str).str.strip()
             mask = (df['clean_reg'] == str(region).strip()) & (df['clean_item'] == str(item_en).strip())
@@ -268,7 +255,6 @@ def update_local_inventory_record(region, item_en, new_qty):
             ws.update_cell(row_idx + 2, 4, int(new_qty))
             ws.update_cell(row_idx + 2, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
         else:
-            # Append new record safely
             ws.append_row([region, item_en, item_en, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
         return True
     except: return False
@@ -486,9 +472,10 @@ else:
                 qty_sk = c_q.number_input(txt['qty_req'], 1, 1000, 1, key="sk_q")
                 if st.button(txt['send_req'], key="sk_snd", use_container_width=True):
                     item_data = wh_inv[wh_inv[NAME_COL] == sel_sk].iloc[0]
+                    # Fix: Ensure single item name passed
                     save_row('requests', [
                         str(uuid.uuid4()), info['name'], info['region'],
-                        item_data['name_en'], item_data['name_en'], item_data['category'],
+                        item_data['name_en'], item_data['category'], # Corrected Order
                         qty_sk, datetime.now().strftime("%Y-%m-%d %H:%M"),
                         txt['pending'], f"Source: {wh_source}", sk_unit
                     ])
@@ -537,9 +524,10 @@ else:
                     qty = c_q.number_input(txt['qty_req'], 1, 1000, 1)
                     if st.button(txt['send_req'], use_container_width=True):
                         item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
+                        # Fix: Send exact columns mapping A-J
                         save_row('requests', [
                             str(uuid.uuid4()), info['name'], req_area,
-                            item['name_en'], item['name_en'], item['category'],
+                            item['name_en'], item['category'],
                             qty, datetime.now().strftime("%Y-%m-%d %H:%M"),
                             txt['pending'], "", req_unit
                         ])
@@ -568,7 +556,6 @@ else:
                             u_idx = 0 if curr_unit == 'Piece' else 1
                             new_unit_edit = c2.radio("Unit", ['Piece', 'Carton'], index=u_idx, key=f"edit_u_{row['req_id']}", horizontal=True)
                             
-                            # Edit Button
                             if c3.button(txt['update_req'], key=f"save_{row['req_id']}"):
                                 if update_request_data(row['req_id'], new_qty_edit, new_unit_edit):
                                     st.success("Updated")
@@ -576,7 +563,6 @@ else:
                                     st.rerun()
                                 else: st.error("Error")
                             
-                            # Delete Button
                             if c4.button(txt['cancel_req'], key=f"del_{row['req_id']}"):
                                 if delete_request_data(row['req_id']):
                                     st.success(txt['cancel_confirm'])
