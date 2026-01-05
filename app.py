@@ -101,10 +101,8 @@ txt = {
     "unit": "Unit", "piece": "Piece", "carton": "Carton",
     "edit_profile": "Edit Profile", "new_name": "New Name", "new_pass": "New Password", 
     "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again",
-    "my_pending": "My Pending Requests (Edit/Cancel)",
-    "update_req": "Update",
-    "cancel_req": "Delete 🗑️",
-    "cancel_confirm": "Deleted successfully"
+    "my_pending": "My Pending Requests (Click to Edit)",
+    "update_req": "Update Request"
 }
 
 NAME_COL = 'name_en'
@@ -180,22 +178,14 @@ def update_request_data(req_id, new_qty, new_unit):
     try:
         sh = get_connection()
         ws = sh.worksheet('requests')
+        # البحث عن الصف الذي يحتوي على رقم الطلب
         cell = ws.find(str(req_id))
         if cell:
+            # الترتيب في save_row: 
+            # 1:id, 2:name, 3:area, 4:item_ar, 5:item_en, 6:cat, 7:qty, 8:date, 9:status, 10:notes, 11:unit
+            # Qty is col 7, Unit is col 11
             ws.update_cell(cell.row, 7, int(new_qty))
             ws.update_cell(cell.row, 11, str(new_unit))
-            return True
-        return False
-    except: return False
-
-# --- دالة حذف طلب المشرف ---
-def delete_request_data(req_id):
-    try:
-        sh = get_connection()
-        ws = sh.worksheet('requests')
-        cell = ws.find(str(req_id))
-        if cell:
-            ws.delete_rows(cell.row)
             return True
         return False
     except: return False
@@ -510,6 +500,7 @@ else:
         with t_req:
             req_area = st.selectbox(txt['select_area'], AREAS, key="sup_req_area")
             
+            # --- Form to Add New Request ---
             if ntcc_items.empty:
                 st.warning(txt['no_items'])
             else:
@@ -533,43 +524,40 @@ else:
             
             st.markdown("---")
             
-            # --- My Pending Requests (EDIT/CANCEL) ---
+            # --- My Pending Requests (EDITABLE) ---
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
+                
+                # Filter Pending for Edit
                 if 'status' in my_reqs.columns:
                     my_reqs['status'] = my_reqs['status'].astype(str).str.strip()
+                    
                 pending_reqs = my_reqs[my_reqs['status'] == 'Pending']
                 
                 if not pending_reqs.empty:
                     st.subheader(txt['my_pending'])
                     for idx, row in pending_reqs.iterrows():
-                        with st.expander(f"⚙️ {row.get('name_en', 'Item')} ({row['qty']}) - Click to Manage"):
-                            c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
-                            
+                        with st.expander(f"📝 Edit: {row.get('name_en', 'Item')} ({row['qty']})"):
+                            c1, c2 = st.columns(2)
                             new_qty_edit = c1.number_input("New Qty", 1, 1000, int(row['qty']), key=f"edit_q_{row['req_id']}")
+                            
+                            # Determine unit index
                             curr_unit = row.get('unit', 'Piece')
                             u_idx = 0 if curr_unit == 'Piece' else 1
-                            new_unit_edit = c2.radio("Unit", ['Piece', 'Carton'], index=u_idx, key=f"edit_u_{row['req_id']}", horizontal=True)
+                            new_unit_edit = c2.radio("New Unit", ['Piece', 'Carton'], index=u_idx, key=f"edit_u_{row['req_id']}")
                             
-                            # زر التحديث
-                            if c3.button(txt['update_req'], key=f"save_{row['req_id']}"):
+                            if st.button(txt['update_req'], key=f"save_{row['req_id']}"):
                                 if update_request_data(row['req_id'], new_qty_edit, new_unit_edit):
                                     st.success("Updated")
                                     time.sleep(1)
                                     st.rerun()
-                                else: st.error("Error")
-                            
-                            # زر الحذف
-                            if c4.button(txt['cancel_req'], key=f"del_{row['req_id']}"):
-                                if delete_request_data(row['req_id']):
-                                    st.success(txt['cancel_confirm'])
-                                    time.sleep(1)
-                                    st.rerun()
-                                else: st.error("Error")
+                                else:
+                                    st.error("Error updating")
                                     
+                # Show All My Requests table (Read Only)
                 st.write("---")
-                st.caption("Request History:")
+                st.caption("All My Requests Status:")
                 cols_to_show = ['name_en', 'qty', 'status', 'region']
                 if 'unit' in my_reqs.columns: cols_to_show.insert(2, 'unit')
                 if 'item_en' in my_reqs.columns: my_reqs = my_reqs.rename(columns={'item_en': 'name_en'})
