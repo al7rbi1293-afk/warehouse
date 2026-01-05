@@ -26,6 +26,27 @@ def get_manager():
 
 cookie_manager = get_manager()
 
+# --- 2. CSS & Security Control ---
+def inject_security_css():
+    st.markdown("""
+        <style>
+        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        .stDeployButton {visibility: hidden !important; display: none !important;}
+        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
+        footer {visibility: hidden !important;}
+        [data-testid="stDecoration"] {display: none;}
+        </style>
+    """, unsafe_allow_html=True)
+
+should_hide = True
+if st.session_state.logged_in:
+    username = str(st.session_state.user_info.get('username', '')).lower()
+    if username == 'abdulaziz':
+        should_hide = False
+
+if should_hide:
+    inject_security_css()
+
 # --- Constants ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
@@ -91,7 +112,8 @@ txt = {
     "cancel_confirm": "Deleted successfully",
     "receive_from_snc": "📥 Receive from External (SNC) to Internal (NTCC)",
     "transfer_btn": "Transfer Stock",
-    "manual_stock_take": "🛠️ Manual Stock Take (NTCC Only)"
+    "manual_stock_take": "🛠️ Manual Stock Take (NTCC Only)",
+    "err_no_stock_approve": "❌ Cannot Approve: Insufficient Stock in NTCC!"
 }
 
 # --- General CSS ---
@@ -215,7 +237,11 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
             try:
                 current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
             except: current_qty = 0
-                
+            
+            # If reducing stock, check if we have enough
+            if int(change_qty) < 0 and abs(int(change_qty)) > current_qty:
+                 return False, f"Insufficient stock! Available: {current_qty}"
+
             new_qty = max(0, current_qty + int(change_qty))
             ws_inv.update_cell(idx + 2, qty_col_idx, new_qty) 
             
@@ -410,15 +436,36 @@ else:
                     for index, row in region_reqs.iterrows():
                         with st.container(border=True):
                             disp_name = row.get('name_en', row.get('item_en', 'Unknown Item'))
-                            st.markdown(f"**📦 {disp_name}**")
+                            req_qty = int(row['qty'])
                             req_u = row['unit'] if 'unit' in row else '-'
-                            st.caption(f"{txt['area_label']}: **{row['region']}** | {txt['qty']}: **{row['qty']} ({req_u})**")
+                            
+                            st.markdown(f"**📦 {disp_name}**")
+                            st.caption(f"{txt['area_label']}: **{row['region']}** | {txt['qty']}: **{req_qty} ({req_u})**")
                             st.caption(f"👤 {row['supervisor']}")
+                            
+                            # --- STOCK CHECK LOGIC ADDED HERE ---
+                            # Get current stock in NTCC
+                            stock_match = inv[(inv['name_en'] == disp_name) & (inv['location'] == 'NTCC')]
+                            current_stock_in_ntcc = 0
+                            if not stock_match.empty:
+                                try:
+                                    current_stock_in_ntcc = int(stock_match.iloc[0]['qty'])
+                                except: current_stock_in_ntcc = 0
+                            
+                            st.info(f"Available in NTCC: **{current_stock_in_ntcc}**")
+                            
                             b1, b2 = st.columns(2)
                             if b1.button(txt['approve'], key=f"ap_{row['req_id']}", use_container_width=True):
-                                reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
-                                update_data('requests', reqs)
-                                st.rerun()
+                                # VALIDATION: Check if we have enough stock
+                                if current_stock_in_ntcc >= req_qty:
+                                    reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
+                                    update_data('requests', reqs)
+                                    st.success("Approved ✅")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error(f"{txt['err_no_stock_approve']} (Req: {req_qty}, Avail: {current_stock_in_ntcc})")
+                                    
                             if b2.button(txt['reject'], key=f"rj_{row['req_id']}", use_container_width=True):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['rejected']
                                 update_data('requests', reqs)
