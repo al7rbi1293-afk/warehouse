@@ -100,7 +100,7 @@ txt = {
     "logs": "Activity Logs",
     "modify_stock": "Modify / Stock Take",
     "stock_monitor": "Stock Monitor",
-    "copyright": "All rights reserved © to Assistant Project Manager of Nerves Project, Abdulaziz Alhazmi. Unauthorized use prohibited.",
+    "copyright": "All rights reserved © to Assistant Project Manager of NSTC Project, Abdulaziz Alhazmi. Unauthorized use prohibited.",
     "select_area": "📍 Target Area / Section",
     "area_label": "Area",
     "unit": "Unit", "piece": "Piece", "carton": "Carton",
