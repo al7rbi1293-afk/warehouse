@@ -8,7 +8,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- إعدادات الصفحة ---
-st.set_page_config(page_title="WMS Secured", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="collapsed")
 
 # --- القوائم للترجمة ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
@@ -23,17 +23,17 @@ def get_cat_key(selection):
 # --- الترجمة ---
 T = {
     "ar": {
-        "app_title": "نظام المستودعات (الداخلي/الخارجي)",
+        "app_title": "نظام المستودعات الموحد",
         "login_page": "دخول", "register_page": "تسجيل",
         "username": "المستخدم", "password": "كلمة المرور",
         "fullname": "الاسم", "region": "المنطقة",
         "login_btn": "دخول", "register_btn": "تسجيل جديد", "logout": "خروج",
         "manager_role": "الإدارة", "supervisor_role": "مشرف", "storekeeper_role": "أمين مستودع",
         "name_ar": "اسم عربي", "name_en": "اسم انجليزي", "category": "تصنيف",
-        "qty": "الكمية", "cats": CATS_AR, "location": "المصدر",
+        "qty": "الكمية", "cats": CATS_AR, "location": "الموقع",
         "requests_log": "سجل", "inventory": "المخزون",
         "local_inv": "جردي", "local_inv_mgr": "تقارير الفروع",
-        "req_form": "طلب مواد", "select_item": "المادة",
+        "req_form": "طلب مواد", "select_item": "اختر المادة",
         "current_local": "لديك:", "update_local": "تحديث",
         "qty_req": "مطلوب", "qty_local": "فعلي",
         "send_req": "إرسال", "update_btn": "حفظ",
@@ -49,7 +49,7 @@ T = {
         "success_issue": "تم الصرف",
         "filter_region": "منطقة",
         "issue_qty_input": "مصروف",
-        "manage_stock": "⚙️ إدارة المخزون المركزي",
+        "manage_stock": "📦 مراقبة وجرد المستودعات المركزية",
         "select_action": "إجراء",
         "add_stock": "إضافة (+)", "reduce_stock": "سحب (-)",
         "amount": "عدد",
@@ -60,25 +60,27 @@ T = {
         "sk_request": "📥 طلب خاص (أمين المستودع)",
         "source_wh": "اختر المستودع",
         "ntcc_label": "داخلي (NTCC)", "snc_label": "خارجي (SNC)",
-        "logs": "السجلات"
+        "logs": "سجل الحركات",
+        "modify_stock": "تعديل / جرد",
+        "stock_monitor": "مراقبة المخزون"
     },
     "en": {
-        "app_title": "WMS System (Int/Ext)",
+        "app_title": "Unified WMS System",
         "login_page": "Login", "register_page": "Register",
         "username": "Username", "password": "Password",
         "fullname": "Name", "region": "Region",
         "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
         "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
         "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
-        "qty": "Qty", "cats": CATS_EN, "location": "Source",
+        "qty": "Qty", "cats": CATS_EN, "location": "Location",
         "requests_log": "Log", "inventory": "Inventory",
         "local_inv": "My Stock", "local_inv_mgr": "Branch Reports",
-        "req_form": "Request", "select_item": "Item",
+        "req_form": "Request", "select_item": "Select Item",
         "current_local": "You have:", "update_local": "Update",
         "qty_req": "Request Qty", "qty_local": "Actual Qty",
         "send_req": "Send", "update_btn": "Save",
         "download_excel": "Excel", "no_items": "No items available",
-        "pending_reqs": "⏳ Pending", "approved_reqs": "📦 To Issue",
+        "pending_reqs": "⏳ Supervisor Requests", "approved_reqs": "📦 To Issue",
         "approve": "Approve ✅", "reject": "Reject ❌", "issue": "Issue 📦",
         "status": "Status", "reason": "Reason",
         "pending": "Pending", "approved": "Approved", 
@@ -89,7 +91,7 @@ T = {
         "success_issue": "Issued",
         "filter_region": "Region",
         "issue_qty_input": "Issued Qty",
-        "manage_stock": "⚙️ Central Stock",
+        "manage_stock": "📦 Central Stock Monitor & Count",
         "select_action": "Action",
         "add_stock": "Add (+)", "reduce_stock": "Remove (-)",
         "amount": "Amount",
@@ -100,13 +102,18 @@ T = {
         "sk_request": "📥 Store Keeper Request",
         "source_wh": "Select Warehouse",
         "ntcc_label": "Internal (NTCC)", "snc_label": "External (SNC)",
-        "logs": "Logs"
+        "logs": "Activity Logs",
+        "modify_stock": "Modify / Stock Take",
+        "stock_monitor": "Stock Monitor"
     }
 }
 
 lang_choice = st.sidebar.selectbox("Language / اللغة", ["العربية", "English"])
 lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
+
+# تحديد عمود الاسم بناءً على اللغة
+NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
 # --- CSS للجوال ---
 if lang == "ar":
@@ -240,43 +247,62 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
-    # ================= 1. واجهة المدير (كاملة) =================
+    # ================= 1. واجهة المدير (المحدثة) =================
     if info['role'] == 'manager':
         st.header(txt['manager_role'])
         inv = load_data('inventory')
         reqs = load_data('requests')
         logs = load_data('stock_logs')
 
-        # إدارة المخزون المركزي (SNC & NTCC)
-        with st.expander(txt['manage_stock'], expanded=True):
-            wh_type = st.radio(txt['source_wh'], ["NTCC", "SNC"], horizontal=True, key="mgr_wh_sel")
+        # --- قسم إدارة المخزون المركزي ---
+        st.subheader(txt['manage_stock'])
+        
+        # التبويبات لعرض القوائم بوضوح
+        tab_view_ntcc, tab_view_snc = st.tabs([txt['ntcc_label'], txt['snc_label']])
+        
+        def render_stock_manager(warehouse_name):
+            wh_data = inv[inv['location'] == warehouse_name] if 'location' in inv.columns else pd.DataFrame()
             
-            # فلترة المواد حسب المستودع المختار
-            wh_inv = inv[inv['location'] == wh_type] if 'location' in inv.columns else pd.DataFrame()
-            
-            if wh_inv.empty:
-                st.warning(f"{txt['no_items']} - {wh_type}")
+            if wh_data.empty:
+                st.info(f"{txt['no_items']} - {warehouse_name}")
             else:
-                item_options = wh_inv.apply(lambda x: f"{x['name_ar']}", axis=1)
-                selected_item_mgr = st.selectbox(txt['select_item'], item_options, key="mgr_it_sel")
+                # عرض الجدول بالأعمدة المطلوبة
+                # عرضنا الاسم بناء على اللغة المختارة للمدير
+                display_cols = ['name_ar', 'name_en', 'qty', 'category']
+                st.dataframe(wh_data[display_cols], use_container_width=True)
                 
-                sel_row = wh_inv[wh_inv['name_ar'] == selected_item_mgr].iloc[0]
-                st.info(f"{txt['current_stock_display']} **{sel_row['qty']}**")
-                
-                c_act, c_val = st.columns(2)
-                action_type = c_act.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], label_visibility="collapsed")
-                adjust_qty = c_val.number_input(txt['amount'], 1, 10000, 1)
-                
-                if st.button(txt['execute_update'], use_container_width=True):
-                    change = adjust_qty if action_type == txt['add_stock'] else -adjust_qty
-                    if update_central_inventory_with_log(sel_row['name_en'], wh_type, change, info['name'], "Manager Adjust"):
-                        st.success(txt['success_update'])
-                        time.sleep(1)
-                        st.rerun()
+                # خيار التعديل
+                with st.expander(f"🛠 {txt['modify_stock']} ({warehouse_name})"):
+                    # القائمة المنسدلة تتغير حسب لغة الواجهة
+                    item_options = wh_data.apply(lambda x: x[NAME_COL], axis=1)
+                    sel_item = st.selectbox(f"{txt['select_item']} ({warehouse_name}):", item_options, key=f"sel_{warehouse_name}")
+                    
+                    # البحث عن الصف (نبحث في العمود الصحيح بناء على اللغة)
+                    current_row = wh_data[wh_data[NAME_COL] == sel_item].iloc[0]
+                    
+                    st.write(f"{txt['current_stock_display']} **{current_row['qty']}**")
+                    
+                    c1, c2 = st.columns(2)
+                    action = c1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key=f"act_{warehouse_name}", horizontal=True)
+                    amount = c2.number_input(txt['amount'], 1, 10000, 1, key=f"amt_{warehouse_name}")
+                    
+                    if st.button(txt['execute_update'], key=f"btn_{warehouse_name}", use_container_width=True):
+                        change = amount if action == txt['add_stock'] else -amount
+                        if update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update"):
+                            st.success(txt['success_update'])
+                            time.sleep(1)
+                            st.rerun()
+
+        with tab_view_ntcc:
+            render_stock_manager("NTCC")
+            
+        with tab_view_snc:
+            render_stock_manager("SNC")
 
         st.markdown("---")
+        
+        # --- قسم الطلبات المعلقة ---
         st.subheader(txt['pending_reqs'])
-        # الطلبات المعلقة (غالباً تأتي من المشرفين للمستودع الداخلي NTCC)
         pending_all = reqs[reqs['status'] == txt['pending']] if not reqs.empty else pd.DataFrame()
         
         if pending_all.empty:
@@ -288,20 +314,25 @@ else:
                     region_reqs = pending_all[pending_all['region'] == region]
                     for index, row in region_reqs.iterrows():
                         with st.container(border=True):
-                            st.markdown(f"**📦 {row['item_ar']}**")
-                            st.caption(f"{txt['qty']}: {row['qty']} | {row['supervisor']}")
+                            # عرض اسم المادة حسب لغة المدير
+                            disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
+                            st.markdown(f"**📦 {disp_name}**")
                             c1, c2 = st.columns(2)
-                            if c1.button(txt['approve'], key=f"ap_{row['req_id']}", use_container_width=True):
+                            c1.caption(f"{txt['qty']}: **{row['qty']}**")
+                            c2.caption(f"👤 {row['supervisor']}")
+                            
+                            b1, b2 = st.columns(2)
+                            if b1.button(txt['approve'], key=f"ap_{row['req_id']}", use_container_width=True):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
                                 update_data('requests', reqs)
                                 st.rerun()
-                            if c2.button(txt['reject'], key=f"rj_{row['req_id']}", use_container_width=True):
+                            if b2.button(txt['reject'], key=f"rj_{row['req_id']}", use_container_width=True):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['rejected']
                                 update_data('requests', reqs)
                                 st.rerun()
         
         st.markdown("---")
-        with st.expander(txt['logs']):
+        with st.expander(f"📜 {txt['logs']}"):
             if not logs.empty: st.dataframe(logs, use_container_width=True)
 
     # ================= 2. واجهة أمين المستودع =================
@@ -312,7 +343,7 @@ else:
         
         tab_issue, tab_req_sk, tab_stocktake = st.tabs([txt['approved_reqs'], txt['sk_request'], txt['stock_take_central']])
         
-        # 1. صرف طلبات المشرفين (من NTCC حصراً لأن المشرف لا يرى غيره)
+        # 1. صرف طلبات المشرفين
         with tab_issue:
             approved = reqs[reqs['status'] == txt['approved']] if not reqs.empty else pd.DataFrame()
             if approved.empty:
@@ -320,14 +351,15 @@ else:
             else:
                 for index, row in approved.iterrows():
                     with st.container(border=True):
-                        st.markdown(f"**📦 {row['item_ar']}**")
-                        st.caption(f"📍 {row['region']} | مطلوب: **{row['qty']}**")
-                        st.caption("يتم الصرف تلقائياً من المستودع الداخلي NTCC")
+                        # عرض الاسم حسب لغة الستور كيبر
+                        disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
+                        st.markdown(f"**📦 {disp_name}**")
+                        st.caption(f"📍 {row['region']} | {txt['qty_req']}: **{row['qty']}**")
+                        st.caption(f"SOURCE: NTCC (Internal)")
                         
                         issue_qty = st.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iq_{row['req_id']}")
                         
                         if st.button(txt['issue'], key=f"btn_is_{row['req_id']}", use_container_width=True):
-                            # الخصم من NTCC
                             if update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}"):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['issued']
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'qty'] = issue_qty
@@ -342,9 +374,9 @@ else:
                                 st.success("OK")
                                 time.sleep(1)
                                 st.rerun()
-                            else: st.error("رصيد NTCC غير كافٍ أو المادة غير موجودة")
+                            else: st.error("Error: Check Stock or Item existence")
 
-        # 2. طلبات الستور كيبر (يطلب من SNC أو NTCC)
+        # 2. طلبات الستور كيبر
         with tab_req_sk:
             wh_source = st.selectbox(txt['source_wh'], ["NTCC", "SNC"], key="sk_src_sel")
             wh_inv = inv[inv['location'] == wh_source] if 'location' in inv.columns else pd.DataFrame()
@@ -352,64 +384,66 @@ else:
             if wh_inv.empty:
                 st.warning(txt['no_items'])
             else:
-                opts = wh_inv.apply(lambda x: f"{x['name_ar']}", axis=1)
+                # القائمة باللغة المختارة
+                opts = wh_inv.apply(lambda x: x[NAME_COL], axis=1)
                 sel_sk = st.selectbox(txt['select_item'], opts, key="sk_it_sel")
                 qty_sk = st.number_input(txt['qty_req'], 1, 1000, 1, key="sk_q")
                 
                 if st.button(txt['send_req'], key="sk_snd", use_container_width=True):
-                    # الستور كيبر يطلب، والطلب يذهب للمدير للموافقة
-                    # سنميز الطلب بأنه من الستور كيبر
-                    item_data = wh_inv[wh_inv['name_ar'] == sel_sk].iloc[0]
+                    item_data = wh_inv[wh_inv[NAME_COL] == sel_sk].iloc[0]
                     save_row('requests', [
-                        str(uuid.uuid4()), info['name'], info['region'], # region here might be 'Main'
+                        str(uuid.uuid4()), info['name'], info['region'],
                         item_data['name_ar'], item_data['name_en'], item_data['category'],
                         qty_sk, datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        txt['pending'], f"Source: {wh_source}" # نخزن المصدر في الملاحظات مؤقتاً
+                        txt['pending'], f"Source: {wh_source}"
                     ])
                     st.success("✅")
 
-        # 3. جرد وتعديل المخزون (SNC & NTCC)
+        # 3. جرد وتعديل المخزون
         with tab_stocktake:
-            tgt_wh = st.radio("اختر المستودع للتعديل:", ["SNC", "NTCC"], horizontal=True, key="sk_tk_wh")
+            tgt_wh = st.radio(txt['source_wh'], ["SNC", "NTCC"], horizontal=True, key="sk_tk_wh")
             tgt_inv = inv[inv['location'] == tgt_wh] if 'location' in inv.columns else pd.DataFrame()
             
             if not tgt_inv.empty:
-                tk_item = st.selectbox(txt['select_item'], tgt_inv['name_ar'], key="tk_it")
-                tk_row = tgt_inv[tgt_inv['name_ar'] == tk_item].iloc[0]
-                st.info(f"الرصيد: {tk_row['qty']}")
+                # القائمة باللغة المختارة
+                tk_opts = tgt_inv.apply(lambda x: x[NAME_COL], axis=1)
+                tk_item = st.selectbox(txt['select_item'], tk_opts, key="tk_it")
+                
+                tk_row = tgt_inv[tgt_inv[NAME_COL] == tk_item].iloc[0]
+                st.info(f"{txt['current_stock_display']} {tk_row['qty']}")
                 
                 c_tk1, c_tk2 = st.columns(2)
-                op_tk = c_tk1.radio("نوع التعديل", ["+", "-"], horizontal=True, label_visibility="collapsed")
-                val_tk = c_tk2.number_input("قيمة التعديل", 1, 1000, 1)
+                op_tk = c_tk1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], horizontal=True, label_visibility="collapsed")
+                val_tk = c_tk2.number_input(txt['amount'], 1, 1000, 1)
                 
                 if st.button(txt['update_btn'], key="tk_save", use_container_width=True):
-                    change = val_tk if op_tk == "+" else -val_tk
+                    change = val_tk if op_tk == txt['add_stock'] else -val_tk
                     if update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust"):
-                        st.success("تم")
+                        st.success("OK")
                         time.sleep(1)
                         st.rerun()
 
-    # ================= 3. واجهة المشرف (محصور في NTCC فقط) =================
+    # ================= 3. واجهة المشرف (محصور في NTCC) =================
     else:
         t_req, t_inv = st.tabs([txt['req_form'], txt['local_inv']])
         inv = load_data('inventory')
         local_inv = load_data('local_inventory')
         
-        # فلترة صارمة: المشرف يرى فقط NTCC
         ntcc_items = inv[(inv['status'] == 'Available') & (inv['location'] == 'NTCC')] if 'location' in inv.columns else pd.DataFrame()
         
         with t_req:
             if ntcc_items.empty:
-                st.warning("المستودع الداخلي فارغ حالياً")
+                st.warning(txt['no_items'])
             else:
                 with st.container(border=True):
-                    opts = ntcc_items.apply(lambda x: f"{x['name_ar']}", axis=1)
+                    # القائمة باللغة المختارة
+                    opts = ntcc_items.apply(lambda x: x[NAME_COL], axis=1)
                     sel = st.selectbox(txt['select_item'], opts)
                     qty = st.number_input(txt['qty_req'], 1, 1000, 1)
                     
                     if st.button(txt['send_req'], use_container_width=True):
-                        idx = opts[opts == sel].index[0]
-                        item = ntcc_items.loc[idx]
+                        # البحث عن الصف باستخدام الاسم المختار (حسب اللغة)
+                        item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
                         save_row('requests', [
                             str(uuid.uuid4()), info['name'], info['region'],
                             item['name_ar'], item['name_en'], item['category'],
@@ -424,29 +458,32 @@ else:
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
-                st.dataframe(my_reqs[['item_ar', 'qty', 'status']], use_container_width=True)
+                # عرض حالة الطلبات مع ترجمة الأعمدة
+                disp_df = my_reqs[['item_ar' if lang=='ar' else 'item_en', 'qty', 'status']]
+                st.dataframe(disp_df, use_container_width=True)
 
         with t_inv:
-            # (نفس كود الجرد المحلي السابق)
             if ntcc_items.empty:
                 st.info(txt['no_items'])
             else:
-                # نظهر له قائمة المواد ليعمل جرد لما لديه
-                # هنا نظهر أسماء المواد الفريدة فقط من NTCC لأنه المصدر المعتمد
                 items_list = []
                 for idx, row in ntcc_items.iterrows():
                     current_qty = 0
                     if not local_inv.empty:
                         match = local_inv[(local_inv['region'] == info['region']) & (local_inv['item_en'] == row['name_en'])]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
-                    items_list.append({"name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
+                    
+                    # حفظ الاسمين للعرض والمنطق
+                    d_name = row['name_ar'] if lang == 'ar' else row['name_en']
+                    items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
                 
-                selected_item_inv = st.selectbox(txt['select_item'], [f"{x['name_ar']}" for x in items_list], key="sel_inv")
-                selected_data = next((item for item in items_list if item["name_ar"] == selected_item_inv), None)
+                # العرض باللغة المختارة
+                selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
+                selected_data = next((item for item in items_list if item["disp"] == selected_item_inv), None)
                 
                 if selected_data:
                     with st.container(border=True):
-                        st.markdown(f"**{selected_data['name_ar']}**")
+                        st.markdown(f"**{selected_data['disp']}**")
                         st.caption(f"{txt['current_local']} {selected_data['current_qty']}")
                         new_val = st.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'])
                         if st.button(txt['update_btn'], use_container_width=True):
