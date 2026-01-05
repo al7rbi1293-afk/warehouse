@@ -9,7 +9,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 import extra_streamlit_components as stx
 
 # --- 1. Page Configuration ---
-# السلايدر مفتوح للجميع
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
 # --- Session Management ---
@@ -33,7 +32,7 @@ AREAS = [
     "Service area", "OPD", "E.R", "x-rays", "neurodiagnostic"
 ]
 
-# --- English Text Dictionary (Default & Only) ---
+# --- English Text Dictionary ---
 txt = {
     "app_title": "Unified WMS System",
     "login_page": "Login", "register_page": "Register",
@@ -83,11 +82,36 @@ txt = {
     "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again"
 }
 
-# --- Settings ---
-NAME_COL = 'name_en'  # Always English
+NAME_COL = 'name_en'
+
+# --- 2. Security & CSS Control ---
+def inject_security_css():
+    st.markdown("""
+        <style>
+        /* Hide Toolbar, Deploy, Manage App */
+        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        .stDeployButton {visibility: hidden !important; display: none !important;}
+        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
+        
+        /* Hide Footer */
+        footer {visibility: hidden !important;}
+        
+        /* Hide Decoration Line */
+        [data-testid="stDecoration"] {display: none;}
+        </style>
+    """, unsafe_allow_html=True)
+
+# Logic: Hide by default, show only if user is 'abdulaziz'
+should_hide = True
+if st.session_state.logged_in:
+    username = str(st.session_state.user_info.get('username', '')).lower()
+    if username == 'abdulaziz':
+        should_hide = False
+
+if should_hide:
+    inject_security_css()
 
 # --- General CSS & Copyright Footer ---
-# تم حذف أكواد الإخفاء (Hidden Visibility) الخاصة بالهيدر والتولبار
 st.markdown(f"""
     <style>
     .stButton button {{ width: 100%; }}
@@ -155,7 +179,6 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
         inv_data = ws_inv.get_all_records()
         df_inv = pd.DataFrame(inv_data)
         
-        # Clean data for comparison
         target_item = str(item_en).strip().lower()
         target_loc = str(location).strip().lower()
         
@@ -207,7 +230,8 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
     except: return False
 
 # --- Cookie Auto-Login ---
-if not st.session_state.logged_in:
+# We check this ONLY if session state says we are not logged in.
+if not st.session_state.get('logged_in', False):
     cookie_user = cookie_manager.get(cookie="wms_user_pro")
     if cookie_user:
         users = load_data('users')
@@ -260,7 +284,6 @@ if not st.session_state.logged_in:
 else:
     info = st.session_state.user_info
     
-    # قائمة جانبية (بدون خيار لغة)
     st.sidebar.markdown(f"### 👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
     
@@ -270,15 +293,23 @@ else:
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
+                # Delete cookie on profile change to force re-login/sync
                 cookie_manager.delete("wms_user_pro")
-                time.sleep(2)
+                time.sleep(1)
                 st.session_state.logged_in = False 
                 st.rerun()
             else: st.error("Error Updating")
 
+    # --- FIX FOR LOGOUT PROBLEM ---
     if st.sidebar.button(txt['logout'], use_container_width=True):
-        st.session_state.logged_in = False
+        # 1. Delete Cookie first
         cookie_manager.delete("wms_user_pro")
+        # 2. Clear Session State
+        st.session_state['logged_in'] = False
+        st.session_state['user_info'] = {}
+        # 3. Wait for browser to remove cookie
+        time.sleep(0.5) 
+        # 4. Rerun app
         st.rerun()
 
     # ================= 1. MANAGER VIEW =================
