@@ -10,42 +10,44 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- 1. إعدادات الصفحة (السلايدر مفتوح للجميع) ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
-# --- إدارة الجلسة (تعريف المتغيرات) ---
+# --- إدارة الجلسة ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- 2. منطق الإخفاء والأمان (CSS) ---
-# القاعدة: نخفي الخيارات افتراضياً (لصفحة الدخول وللمستخدمين العاديين)
-should_hide = True
+# --- 2. التحكم الأمني في الواجهة (CSS) ---
+# المنطق: نخفي زر "Manage App" وخيارات المطور افتراضياً للجميع
+# ولكن لا نخفي الـ Header بالكامل لكي لا يختفي زر السلايدر
 
-# إذا سجل الدخول وكان الاسم abdulaziz، نلغي الإخفاء
+hide_dev_style = """
+    <style>
+    /* إخفاء القائمة العلوية اليمين (3 نقاط + Deploy + Manage App) */
+    [data-testid="stToolbar"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+    
+    /* إخفاء الفوتر */
+    footer {visibility: hidden !important;}
+    
+    /* إخفاء الخط الملون العلوي */
+    [data-testid="stDecoration"] {display: none;}
+    
+    /* هام: لا نخفي header بالكامل للحفاظ على زر السلايدر */
+    </style>
+"""
+
+# تطبيق الإخفاء افتراضياً
+inject_css = True
+
+# إذا سجل الدخول وكان اسمه abdulaziz -> نلغي الإخفاء
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
     if username == 'abdulaziz':
-        should_hide = False
+        inject_css = False
 
-# تطبيق الـ CSS بناءً على الشرط
-if should_hide:
-    # هذا الكود يخفي خيارات المطور والفوتر ولكنه يبقي زر السلايدر ظاهراً
-    HIDE_STYLES = """
-    <style>
-    /* إخفاء القائمة العلوية اليمين (3 نقاط) وزر Deploy */
-    [data-testid="stToolbar"] {visibility: hidden !important;}
-    
-    /* إخفاء خيارات إدارة التطبيق */
-    [data-testid="manage-app-button"] {display: none !important;}
-    
-    /* إخفاء الفوتر الافتراضي (Made with Streamlit) */
-    footer {visibility: hidden !important;}
-    
-    /* إخفاء الخط الملون في أعلى الصفحة */
-    [data-testid="stDecoration"] {display: none;}
-    
-    /* ملاحظة: لم نقم بإخفاء header بالكامل لضمان ظهور زر القائمة الجانبية */
-    </style>
-    """
-    st.markdown(HIDE_STYLES, unsafe_allow_html=True)
+if inject_css:
+    st.markdown(hide_dev_style, unsafe_allow_html=True)
 
 # --- القوائم والبيانات الثابتة ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
@@ -161,10 +163,9 @@ lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- CSS وتذييل الحقوق ---
+# --- CSS التنسيق العام وحقوق الملكية ---
 st.markdown(f"""
     <style>
-    /* تنسيق النصوص والاتجاه */
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
         direction: {'rtl' if lang == 'ar' else 'ltr'}; 
         text-align: {'right' if lang == 'ar' else 'left'}; 
@@ -174,8 +175,6 @@ st.markdown(f"""
         text-align: {'right' if lang == 'ar' else 'left'}; 
     }}
     .stButton button {{ width: 100%; }}
-    
-    /* تذييل الحقوق */
     .copyright-footer {{
         position: fixed; left: 10px; bottom: 5px;
         background-color: rgba(255, 255, 255, 0.9);
