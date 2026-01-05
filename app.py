@@ -8,7 +8,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- إعدادات الصفحة ---
-st.set_page_config(page_title="WMS Cloud Pro", layout="wide")
+st.set_page_config(page_title="WMS Integrated", layout="wide")
 
 # --- القوائم للترجمة ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
@@ -19,73 +19,75 @@ def get_cat_key(selection):
     elif selection in CATS_AR: return CATS_EN[CATS_AR.index(selection)]
     return "Others"
 
-# --- الترجمة (تم التأكد من وجود المفاتيح المفقودة) ---
+# --- الترجمة ---
 T = {
     "ar": {
-        "app_title": "نظام إدارة المستودعات والمخزون المحلي",
+        "app_title": "نظام إدارة سلسلة الإمداد والمستودعات",
         "login_page": "تسجيل الدخول", "register_page": "تسجيل مشرف جديد",
         "username": "اسم المستخدم", "password": "كلمة المرور",
         "fullname": "الاسم الكامل", "region": "المنطقة",
         "login_btn": "دخول", "register_btn": "إنشاء حساب", "logout": "خروج",
-        "manager_role": "الإدارة", "supervisor_role": "مشرف",
+        "manager_role": "الإدارة", "supervisor_role": "مشرف", "storekeeper_role": "أمين المستودع",
         "add_item": "➕ تعريف مادة جديدة (النظام)",
         "name_ar": "الاسم (عربي)", "name_en": "الاسم (English)", "category": "التصنيف",
-        "qty": "الكمية", "cats": CATS_AR,
+        "qty": "الكمية المركزية", "cats": CATS_AR,
         "requests_log": "سجل الطلبات", "inventory": "المخزون المركزي",
-        "local_inv": "📦 مخزوني المحلي (الجرد)",
+        "local_inv": "📦 جرد مستودعي (تحديث الكميات)",
         "local_inv_mgr": "🏢 تقارير المخزون المحلي للفروع",
         "req_form": "طلب مواد",
         "select_item": "اختر المادة",
-        "current_local": "المتوفر لديك حالياً في المستودع المحلي:",
-        "update_local": "تحديث جرد المادة",
-        "qty_req": "الكمية المطلوبة من المركزي",
-        "qty_local": "الكمية المتوفرة لدي فعلياً (تحديث الجرد)",
-        "send_req": "إرسال الطلب", "update_btn": "حفظ الجرد فقط",
+        "current_local": "المتوفر لديك حالياً:",
+        "update_local": "تحديث الجرد",
+        "qty_req": "الكمية المطلوبة",
+        "qty_local": "العدد الفعلي لدي",
+        "send_req": "إرسال الطلب", "update_btn": "حفظ الجرد",
         "download_excel": "تصدير Excel", "no_items": "لا يوجد مواد",
-        "pending_reqs": "⏳ طلبات بانتظار الموافقة",
-        "approve": "✅ قبول", "reject": "❌ رفض",
+        "pending_reqs": "⏳ طلبات تحتاج موافقة (مقسمة بالمناطق)",
+        "approved_reqs": "📦 طلبات معتمدة (بانتظار الصرف)",
+        "approve": "✅ اعتماد", "reject": "❌ رفض", "issue": "📦 صرف وخصم من المخزون",
         "status": "الحالة", "reason": "ملاحظات / سبب الرفض",
-        "pending": "قيد الانتظار", "approved": "تم الصرف", "rejected": "مرفوض",
+        "pending": "بانتظار المدير", "approved": "معتمد (بانتظار الصرف)", 
+        "rejected": "مرفوض", "issued": "تم الصرف",
         "err_qty": "الكمية في المخزون المركزي غير كافية!",
-        "success_update": "تم تحديث جرد المنطقة بنجاح",
-        "success_req": "تم إرسال الطلب بنجاح",
-        "success_reg": "تم التسجيل بنجاح! يمكنك الدخول الآن",  # <-- هذا هو المفتاح الذي كان ناقصاً
-        "filter_region": "تصفية حسب المنطقة",
-        "error_login": "بيانات الدخول غير صحيحة",
-        "success_add": "تمت الإضافة بنجاح"
+        "success_update": "تم تحديث الجرد",
+        "success_req": "تم إرسال الطلب",
+        "success_issue": "تم صرف المواد وتحديث المخزون بنجاح",
+        "filter_region": "المنطقة",
+        "issue_qty_input": "الكمية التي سيتم صرفها فعلياً"
     },
     "en": {
-        "app_title": "Warehouse & Local Inventory System",
+        "app_title": "Supply Chain & Warehouse System",
         "login_page": "Login", "register_page": "Register",
         "username": "Username", "password": "Password",
         "fullname": "Full Name", "region": "Region",
         "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
-        "manager_role": "Manager", "supervisor_role": "Supervisor",
-        "add_item": "➕ Define New Item (System)",
+        "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
+        "add_item": "➕ Define New Item",
         "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
-        "qty": "Quantity", "cats": CATS_EN,
+        "qty": "Central Qty", "cats": CATS_EN,
         "requests_log": "Requests Log", "inventory": "Central Inventory",
-        "local_inv": "📦 My Local Inventory",
-        "local_inv_mgr": "🏢 Branches Local Inventory Reports",
-        "req_form": "Request Materials",
+        "local_inv": "📦 My Stock Take",
+        "local_inv_mgr": "🏢 Local Stock Reports",
+        "req_form": "Request Items",
         "select_item": "Select Item",
-        "current_local": "Currently in your Local Stock:",
-        "update_local": "Update Local Stock",
-        "qty_req": "Quantity Requested",
-        "qty_local": "Actual Quantity on Hand (Update Stock)",
-        "send_req": "Submit Request", "update_btn": "Save Stock Count Only",
+        "current_local": "Current Local Stock:",
+        "update_local": "Update Stock",
+        "qty_req": "Qty Requested",
+        "qty_local": "Actual Qty on Hand",
+        "send_req": "Submit Request", "update_btn": "Save Count",
         "download_excel": "Export Excel", "no_items": "No items",
-        "pending_reqs": "⏳ Pending Requests",
-        "approve": "✅ Approve", "reject": "❌ Reject",
+        "pending_reqs": "⏳ Pending Approval (By Region)",
+        "approved_reqs": "📦 Approved Requests (Ready to Issue)",
+        "approve": "✅ Approve", "reject": "❌ Reject", "issue": "📦 Issue & Deduct Stock",
         "status": "Status", "reason": "Reason",
-        "pending": "Pending", "approved": "Approved", "rejected": "Rejected",
+        "pending": "Pending Manager", "approved": "Approved (Pending Issue)", 
+        "rejected": "Rejected", "issued": "Issued",
         "err_qty": "Insufficient Central Stock!",
-        "success_update": "Local stock updated successfully",
-        "success_req": "Request sent successfully",
-        "success_reg": "Registered successfully! Please login.", # <-- المفتاح الناقص
-        "filter_region": "Filter by Region",
-        "error_login": "Invalid credentials",
-        "success_add": "Added Successfully"
+        "success_update": "Stock updated",
+        "success_req": "Request sent",
+        "success_issue": "Items issued and stock updated",
+        "filter_region": "Region",
+        "issue_qty_input": "Actual Issued Qty"
     }
 }
 
@@ -108,63 +110,46 @@ def get_connection():
         client = gspread.authorize(creds)
         sheet = client.open("WMS_Database")
         return sheet
-    except Exception as e:
-        st.error(f"Error connecting to Google Sheets: {e}")
-        return None
+    except: return None
 
 def load_data(worksheet_name):
     try:
         sh = get_connection()
-        if sh:
-            ws = sh.worksheet(worksheet_name)
-            data = ws.get_all_records()
-            df = pd.DataFrame(data)
-            if worksheet_name == 'users' and not df.empty:
-                df['username'] = df['username'].astype(str)
-                df['password'] = df['password'].astype(str)
-            return df
-        return pd.DataFrame()
-    except Exception as e:
-        return pd.DataFrame()
+        ws = sh.worksheet(worksheet_name)
+        data = ws.get_all_records()
+        return pd.DataFrame(data)
+    except: return pd.DataFrame()
 
 def save_row(worksheet_name, row_data_list):
     sh = get_connection()
-    if sh:
-        ws = sh.worksheet(worksheet_name)
-        ws.append_row(row_data_list)
+    ws = sh.worksheet(worksheet_name)
+    ws.append_row(row_data_list)
 
 def update_data(worksheet_name, df):
     sh = get_connection()
-    if sh:
-        ws = sh.worksheet(worksheet_name)
-        ws.clear()
-        ws.update([df.columns.values.tolist()] + df.values.tolist())
+    ws = sh.worksheet(worksheet_name)
+    ws.clear()
+    ws.update([df.columns.values.tolist()] + df.values.tolist())
 
 def update_local_inventory_record(region, item_en, item_ar, new_qty):
     try:
         sh = get_connection()
-        if sh:
-            ws = sh.worksheet('local_inventory')
-            data = ws.get_all_records()
-            df = pd.DataFrame(data)
-            
-            if not df.empty:
-                mask = (df['region'] == region) & (df['item_en'] == item_en)
-            else:
-                mask = pd.Series([False])
+        ws = sh.worksheet('local_inventory')
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        
+        if not df.empty:
+            mask = (df['region'] == region) & (df['item_en'] == item_en)
+        else: mask = pd.Series([False])
 
-            if mask.any():
-                row_idx = df.index[mask][0]
-                cell_row = row_idx + 2 
-                ws.update_cell(cell_row, 4, int(new_qty))
-                ws.update_cell(cell_row, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
-            else:
-                ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
-            return True
-        return False
-    except Exception as e:
-        st.error(f"Error: {e}")
-        return False
+        if mask.any():
+            row_idx = df.index[mask][0]
+            ws.update_cell(row_idx + 2, 4, int(new_qty)) # Column 4 is Qty
+            ws.update_cell(row_idx + 2, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
+        else:
+            ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
+        return True
+    except: return False
 
 # --- إدارة الجلسة ---
 if 'logged_in' not in st.session_state:
@@ -182,13 +167,16 @@ if not st.session_state.logged_in:
             if st.form_submit_button(txt['login_btn']):
                 users = load_data('users')
                 if not users.empty:
+                    # تحويل الأرقام لنصوص للمقارنة
+                    users['username'] = users['username'].astype(str)
+                    users['password'] = users['password'].astype(str)
                     match = users[(users['username']==u) & (users['password']==p)]
                     if not match.empty:
                         st.session_state.logged_in = True
                         st.session_state.user_info = match.iloc[0].to_dict()
                         st.rerun()
                     else: st.error(txt['error_login'])
-                else: st.error("Database Error (Check Connection)")
+                else: st.error("Database Error")
     with t2:
         with st.form("reg"):
             nu = st.text_input(txt['username'], key='r_u').strip()
@@ -197,178 +185,246 @@ if not st.session_state.logged_in:
             nr = st.text_input(txt['region'])
             if st.form_submit_button(txt['register_btn']):
                 users = load_data('users')
-                # التأكد من عدم وجود المستخدم
-                user_exists = False
+                exists = False
                 if not users.empty:
-                    if nu in users['username'].astype(str).values:
-                        user_exists = True
-                
-                if not user_exists and nu:
+                    if nu in users['username'].astype(str).values: exists = True
+                if not exists and nu:
                     save_row('users', [nu, np, nn, 'supervisor', nr])
-                    st.success(txt['success_reg'])
-                else: st.error("User exists or field empty")
+                    st.success("OK")
+                else: st.error("Error")
 
-# === التطبيق الرئيسي ===
+# === النظام الرئيسي ===
 else:
     info = st.session_state.user_info
     st.sidebar.markdown("---")
     st.sidebar.write(f"👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']}")
+    st.sidebar.caption(f"🔑 {info['role']}") # عرض الرتبة
     
     if st.sidebar.button(txt['logout']):
         st.session_state.logged_in = False
         st.rerun()
 
-    # ================= واجهة المدير =================
+    # ================= 1. واجهة المدير (Manager) =================
     if info['role'] == 'manager':
         st.header(f"👨‍💼 {txt['manager_role']}")
         
         reqs = load_data('requests')
-        inv = load_data('inventory')
+        # الفلترة فقط للطلبات المعلقة
+        pending_all = reqs[reqs['status'] == txt['pending']] if not reqs.empty else pd.DataFrame()
         
-        # 1. الطلبات المعلقة
+        # --- حل مشكلة حجم الطلبات: تقسيم حسب المنطقة ---
         st.subheader(txt['pending_reqs'])
-        pending_df = reqs[reqs['status'] == txt['pending']] if not reqs.empty else pd.DataFrame()
         
-        if pending_df.empty:
-            st.info("لا توجد طلبات معلقة")
+        if pending_all.empty:
+            st.info("✅ لا توجد طلبات جديدة")
         else:
-            for index, row in pending_df.iterrows():
-                local_inv_df = load_data('local_inventory')
-                local_stock_val = 0
-                if not local_inv_df.empty:
-                    l_match = local_inv_df[(local_inv_df['region'] == row['region']) & (local_inv_df['item_en'] == row['item_en'])]
-                    if not l_match.empty:
-                        local_stock_val = l_match.iloc[0]['qty']
-
-                with st.expander(f"{row['item_ar']} | الكمية: {row['qty']} | الفرع: {row['region']}", expanded=True):
-                    c1, c2, c3 = st.columns([2,1,1])
-                    c1.info(f"💡 المخزون المحلي لدى الفرع: **{local_stock_val}**")
+            # الحصول على قائمة المناطق الفريدة
+            regions = pending_all['region'].unique()
+            
+            for region in regions:
+                # إنشاء Expander لكل منطقة
+                with st.expander(f"📍 منطقة: {region} ({len(pending_all[pending_all['region']==region])} طلبات)", expanded=False):
+                    region_reqs = pending_all[pending_all['region'] == region]
                     
-                    if c2.button(txt['approve'], key=f"app_{row['req_id']}"):
-                        item_match = inv[inv['name_en'] == row['item_en']]
-                        if not item_match.empty:
-                            idx = item_match.index[0]
-                            curr_qty = int(inv.at[idx, 'qty'])
-                            if curr_qty >= int(row['qty']):
-                                inv.at[idx, 'qty'] = curr_qty - int(row['qty'])
-                                reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
-                                update_data('inventory', inv)
-                                update_data('requests', reqs)
-                                
-                                # تحديث المخزون المحلي
-                                current_local = local_stock_val + int(row['qty'])
-                                update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], current_local)
-                                
-                                st.success("Approved")
-                                time.sleep(1)
-                                st.rerun()
-                            else: st.error(txt['err_qty'])
-                        else: st.error("Item missing")
-                    
-                    reason = c3.text_input(txt['reason'], key=f"re_{row['req_id']}")
-                    if c3.button(txt['reject'], key=f"rej_{row['req_id']}"):
-                        if reason:
-                            reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['rejected']
-                            reqs.loc[reqs['req_id'] == row['req_id'], 'reason'] = reason
+                    for index, row in region_reqs.iterrows():
+                        c1, c2, c3 = st.columns([3, 1, 1])
+                        c1.write(f"**{row['item_ar']}** | العدد: **{row['qty']}** | المشرف: {row['supervisor']}")
+                        
+                        # المدير هنا يعتمد فقط (لا يخصم المخزون بعد)
+                        if c2.button(txt['approve'], key=f"app_{row['req_id']}"):
+                            reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
                             update_data('requests', reqs)
-                            st.warning("Rejected")
+                            st.success(f"تم اعتماد طلب {row['item_ar']}")
                             time.sleep(1)
                             st.rerun()
-                        else: st.error("Reason required")
+                            
+                        reason = c3.text_input("سبب الرفض", key=f"rsn_{row['req_id']}")
+                        if c3.button(txt['reject'], key=f"rej_{row['req_id']}"):
+                            if reason:
+                                reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['rejected']
+                                reqs.loc[reqs['req_id'] == row['req_id'], 'reason'] = reason
+                                update_data('requests', reqs)
+                                st.warning("تم الرفض")
+                                time.sleep(1)
+                                st.rerun()
+                            else: st.error("اذكر السبب")
+                        st.divider()
 
         st.markdown("---")
-        
-        # 2. تقارير الجرد المحلي
-        st.subheader(txt['local_inv_mgr'])
-        local_data = load_data('local_inventory')
-        if not local_data.empty:
-            regions = ["الكل"] + list(local_data['region'].unique())
-            selected_reg = st.selectbox(txt['filter_region'], regions)
-            
-            if selected_reg != "الكل":
-                display_local = local_data[local_data['region'] == selected_reg]
-            else:
-                display_local = local_data
-            
-            st.dataframe(display_local, use_container_width=True)
-            
-            b = io.BytesIO()
-            with pd.ExcelWriter(b, engine='openpyxl') as w: display_local.to_excel(w, index=False)
-            st.download_button(f"{txt['download_excel']}", b.getvalue(), "local_inventory.xlsx")
+        # تقارير الجرد المحلي
+        with st.expander(txt['local_inv_mgr']):
+            local_data = load_data('local_inventory')
+            if not local_data.empty:
+                st.dataframe(local_data, use_container_width=True)
+                b = io.BytesIO()
+                with pd.ExcelWriter(b, engine='openpyxl') as w: local_data.to_excel(w, index=False)
+                st.download_button(txt['download_excel'], b.getvalue(), "local_inv.xlsx")
 
-        # 3. إدارة المواد
+        # إضافة مواد (للمدير فقط)
         with st.expander(txt['add_item']):
             c1, c2, c3 = st.columns(3)
             na = c1.text_input(txt['name_ar'])
             ne = c1.text_input(txt['name_en'])
             cat = c2.selectbox(txt['category'], txt['cats'])
             q = c3.number_input(txt['qty'], 0, 99999, 0)
-            if st.button(txt['add_item']):
-                if na and ne:
+            if st.button("حفظ"):
+                if na:
                     save_row('inventory', [na, ne, get_cat_key(cat), q, 'Available'])
-                    st.success(txt['success_add'])
-                    time.sleep(1)
+                    st.success("تم")
                     st.rerun()
 
-    # ================= واجهة المشرف =================
+    # ================= 2. واجهة أمين المستودع (Store Keeper) =================
+    elif info['role'] == 'storekeeper':
+        st.header(f"🏭 {txt['storekeeper_role']}")
+        
+        reqs = load_data('requests')
+        inv = load_data('inventory')
+        
+        # يظهر له فقط الطلبات التي وافق عليها المدير (Approved)
+        approved_df = reqs[reqs['status'] == txt['approved']] if not reqs.empty else pd.DataFrame()
+        
+        st.subheader(txt['approved_reqs'])
+        
+        if approved_df.empty:
+            st.info("لا توجد طلبات بانتظار الصرف")
+        else:
+            # عرض الطلبات في جدول
+            st.dataframe(approved_df[['region', 'item_ar', 'qty', 'date']], use_container_width=True)
+            st.markdown("---")
+            
+            st.write("### ⏬ تنفيذ الصرف")
+            
+            for index, row in approved_df.iterrows():
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([2, 1, 1])
+                    c1.write(f"**{row['item_ar']}** ({row['item_en']})")
+                    c1.caption(f"المنطقة: {row['region']} | المطلوب: {row['qty']}")
+                    
+                    # أمين المستودع يحدد الكمية التي سيصرفها فعلياً (قد تكون أقل)
+                    issue_qty = c2.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iss_q_{row['req_id']}")
+                    
+                    if c3.button(txt['issue'], key=f"iss_btn_{row['req_id']}"):
+                        # 1. الخصم من المخزون المركزي
+                        item_match = inv[inv['name_en'] == row['item_en']]
+                        if not item_match.empty:
+                            idx = item_match.index[0]
+                            current_stock = int(inv.at[idx, 'qty'])
+                            
+                            if current_stock >= issue_qty:
+                                inv.at[idx, 'qty'] = current_stock - issue_qty
+                                
+                                # 2. تحديث حالة الطلب
+                                reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['issued']
+                                reqs.loc[reqs['req_id'] == row['req_id'], 'qty'] = issue_qty # تحديث الكمية بالرقم المصروف فعلياً
+                                
+                                # 3. تحديث المخزون المحلي للمنطقة (زيادة رصيدهم)
+                                local_inv_df = load_data('local_inventory')
+                                current_local = 0
+                                if not local_inv_df.empty:
+                                    lm = local_inv_df[(local_inv_df['region'] == row['region']) & (local_inv_df['item_en'] == row['item_en'])]
+                                    if not lm.empty: current_local = int(lm.iloc[0]['qty'])
+                                
+                                update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], current_local + issue_qty)
+
+                                # حفظ التغييرات
+                                update_data('inventory', inv)
+                                update_data('requests', reqs)
+                                
+                                st.balloons()
+                                st.success(f"{txt['success_issue']} ({issue_qty})")
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error(f"{txt['err_qty']} (المتوفر: {current_stock})")
+                        else:
+                            st.error("المادة غير موجودة في سجل المخزون!")
+
+    # ================= 3. واجهة المشرف (Supervisor) =================
     else:
-        st.header(f"👷 {txt['req_form']} & {txt['local_inv']}")
+        # --- حل مشكلة الجرد: تبويب خاص للجرد يظهر كل المواد ---
+        t_req, t_inv = st.tabs([txt['req_form'], txt['local_inv']])
         
         inv = load_data('inventory')
         local_inv = load_data('local_inventory')
         avail_items = inv[inv['status'] == 'Available'] if not inv.empty else pd.DataFrame()
         
-        if avail_items.empty:
-            st.warning(txt['no_items'])
-        else:
-            opts = avail_items.apply(lambda x: f"{x['name_ar']} | {x['name_en']}", axis=1)
-            selection = st.selectbox(txt['select_item'], opts)
-            
-            if selection:
-                idx = opts[opts == selection].index[0]
-                item_data = avail_items.loc[idx]
-                
-                current_local_qty = 0
-                if not local_inv.empty:
-                    match = local_inv[(local_inv['region'] == info['region']) & (local_inv['item_en'] == item_data['name_en'])]
-                    if not match.empty:
-                        current_local_qty = match.iloc[0]['qty']
-                
-                st.info(f"📊 {txt['current_local']} **{current_local_qty}**")
-                
-                col_a, col_b = st.columns(2)
-                
-                with col_a:
-                    st.markdown("### 📥 طلب مواد")
-                    req_qty = st.number_input(txt['qty_req'], 0, 1000, 0)
-                    if st.button(txt['send_req']):
-                        if req_qty > 0:
-                            save_row('requests', [
-                                str(uuid.uuid4()), info['name'], info['region'],
-                                item_data['name_ar'], item_data['name_en'], item_data['category'],
-                                req_qty, datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                txt['pending'], ""
-                            ])
-                            st.success(txt['success_req'])
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.warning("الكمية 0")
-
-                with col_b:
-                    st.markdown("### 📝 جرد (تحديث)")
-                    new_local_qty = st.number_input(txt['qty_local'], 0, 9999, int(current_local_qty))
+        # --- تبويب الطلب ---
+        with t_req:
+            st.header(txt['req_form'])
+            if avail_items.empty:
+                st.warning(txt['no_items'])
+            else:
+                with st.form("req_form_new"):
+                    opts = avail_items.apply(lambda x: f"{x['name_ar']} | {x['name_en']}", axis=1)
+                    sel = st.selectbox(txt['select_item'], opts)
+                    qty = st.number_input(txt['qty_req'], 1, 1000, 1)
                     
-                    if st.button(txt['update_btn']):
-                        if update_local_inventory_record(info['region'], item_data['name_en'], item_data['name_ar'], new_local_qty):
-                            st.success(txt['success_update'])
-                            time.sleep(1)
-                            st.rerun()
+                    if st.form_submit_button(txt['send_req']):
+                        idx = opts[opts == sel].index[0]
+                        item = avail_items.loc[idx]
+                        save_row('requests', [
+                            str(uuid.uuid4()), info['name'], info['region'],
+                            item['name_ar'], item['name_en'], item['category'],
+                            qty, datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            txt['pending'], ""
+                        ])
+                        st.success(txt['success_req'])
+                        time.sleep(1)
+                        st.rerun()
+            
+            st.markdown("---")
+            st.caption("حالة طلباتي:")
+            reqs = load_data('requests')
+            if not reqs.empty:
+                my_reqs = reqs[reqs['supervisor'] == info['name']]
+                st.dataframe(my_reqs[['item_ar', 'qty', 'status', 'reason']], use_container_width=True)
 
-        st.markdown("---")
-        st.subheader("📋 حالة طلباتي السابقة")
-        reqs = load_data('requests')
-        if not reqs.empty:
-            my_reqs = reqs[reqs['supervisor'] == info['name']]
-            st.dataframe(my_reqs[['item_ar', 'qty', 'status', 'reason', 'date']], use_container_width=True)
+        # --- تبويب الجرد (المشكلة الأولى) ---
+        with t_inv:
+            st.header(txt['local_inv'])
+            st.caption("قم بتحديث الكميات المتوفرة في مستودعك المحلي:")
+            
+            if avail_items.empty:
+                st.info("لا توجد مواد معرفة في النظام")
+            else:
+                # عرض قائمة بجميع المواد ليسهل الجرد
+                # نقوم بإنشاء قائمة تفاعلية
+                
+                # تحضير البيانات الحالية للجرد
+                items_list = []
+                for idx, row in avail_items.iterrows():
+                    # البحث عن الكمية الحالية المسجلة لهذا المشرف
+                    current_qty = 0
+                    if not local_inv.empty:
+                        match = local_inv[(local_inv['region'] == info['region']) & (local_inv['item_en'] == row['name_en'])]
+                        if not match.empty:
+                            current_qty = int(match.iloc[0]['qty'])
+                    
+                    items_list.append({
+                        "name_ar": row['name_ar'],
+                        "name_en": row['name_en'],
+                        "current_qty": current_qty
+                    })
+                
+                # عرض المواد بطريقة سهلة للتعديل (واحدة تلو الأخرى أو اختيار)
+                # استخدام Selectbox للتحديث السريع أفضل من عرض 100 سطر دفعة واحدة للسرعة
+                
+                selected_item_inv = st.selectbox("اختر المادة لتحديث جردها:", 
+                                               [f"{x['name_ar']}" for x in items_list], 
+                                               key="inv_sel")
+                
+                # العثور على العنصر المختار
+                selected_data = next((item for item in items_list if item["name_ar"] == selected_item_inv), None)
+                
+                if selected_data:
+                    st.write(f"**المادة:** {selected_data['name_ar']} ({selected_data['name_en']})")
+                    
+                    c1, c2 = st.columns(2)
+                    new_val = c1.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'], key="new_val_inv")
+                    
+                    if c2.button(txt['update_btn'], key="save_inv_btn"):
+                        update_local_inventory_record(info['region'], selected_data['name_en'], selected_data['name_ar'], new_val)
+                        st.success(txt['success_update'])
+                        time.sleep(1)
+                        st.rerun() # تحديث تلقائي (حل المشكلة الثانية)
