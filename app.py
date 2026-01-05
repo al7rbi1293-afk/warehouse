@@ -22,6 +22,27 @@ def get_manager():
 
 cookie_manager = get_manager()
 
+# --- 2. CSS & Security Control ---
+def inject_security_css():
+    st.markdown("""
+        <style>
+        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+        .stDeployButton {visibility: hidden !important; display: none !important;}
+        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
+        footer {visibility: hidden !important;}
+        [data-testid="stDecoration"] {display: none;}
+        </style>
+    """, unsafe_allow_html=True)
+
+should_hide = True
+if st.session_state.logged_in:
+    username = str(st.session_state.user_info.get('username', '')).lower()
+    if username == 'abdulaziz':
+        should_hide = False
+
+if should_hide:
+    inject_security_css()
+
 # --- Constants & Lists ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
@@ -40,14 +61,14 @@ txt = {
     "fullname": "Full Name", "region": "Main Region",
     "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
     "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
-    "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
+    "name_en": "Name", "category": "Category",
     "qty": "Qty", "cats": CATS_EN, "location": "Location",
     "requests_log": "Log", "inventory": "Inventory",
     "local_inv": "My Stock", "local_inv_mgr": "Branch Reports",
-    "req_form": "Request", "select_item": "Select Item",
+    "req_form": "Request Items", "select_item": "Select Item",
     "current_local": "You have:", "update_local": "Update",
     "qty_req": "Request Qty", "qty_local": "Actual Qty",
-    "send_req": "Send", "update_btn": "Save",
+    "send_req": "Send Request", "update_btn": "Save",
     "download_excel": "Export Excel", "no_items": "No items available",
     "pending_reqs": "⏳ Supervisor Requests", "approved_reqs": "📦 To Issue",
     "approve": "Approve ✅", "reject": "Reject ❌", "issue": "Issue 📦",
@@ -79,33 +100,16 @@ txt = {
     "area_label": "Area",
     "unit": "Unit", "piece": "Piece", "carton": "Carton",
     "edit_profile": "Edit Profile", "new_name": "New Name", "new_pass": "New Password", 
-    "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again"
+    "save_changes": "Save Changes", "profile_updated": "Profile updated, please login again",
+    "my_pending": "My Pending Requests (Edit/Cancel)",
+    "update_req": "Update",
+    "cancel_req": "Delete 🗑️",
+    "cancel_confirm": "Deleted successfully"
 }
 
 NAME_COL = 'name_en'
 
-# --- 2. Security & CSS Control ---
-def inject_security_css():
-    st.markdown("""
-        <style>
-        [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-        .stDeployButton {visibility: hidden !important; display: none !important;}
-        [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        footer {visibility: hidden !important;}
-        [data-testid="stDecoration"] {display: none;}
-        </style>
-    """, unsafe_allow_html=True)
-
-should_hide = True
-if st.session_state.logged_in:
-    username = str(st.session_state.user_info.get('username', '')).lower()
-    if username == 'abdulaziz':
-        should_hide = False
-
-if should_hide:
-    inject_security_css()
-
-# --- General CSS & Copyright ---
+# --- General CSS ---
 st.markdown(f"""
     <style>
     .stButton button {{ width: 100%; }}
@@ -140,13 +144,11 @@ def load_data(worksheet_name):
         ws = sh.worksheet(worksheet_name)
         data = ws.get_all_records()
         df = pd.DataFrame(data)
-        # --- FIX: Standardize Column Names ---
-        # This prevents KeyError if the sheet has 'item_en' instead of 'name_en'
         if not df.empty:
-            if 'item_en' in df.columns:
-                df = df.rename(columns={'item_en': 'name_en'})
-            if 'item_ar' in df.columns:
-                df = df.rename(columns={'item_ar': 'name_ar'})
+            if 'item_en' in df.columns: df = df.rename(columns={'item_en': 'name_en'})
+            if 'item_ar' in df.columns: df = df.rename(columns={'item_ar': 'name_ar'})
+            if 'status' in df.columns: df['status'] = df['status'].astype(str).str.strip()
+            if 'region' in df.columns: df['region'] = df['region'].astype(str).str.strip()
         return df
     except: return pd.DataFrame()
 
@@ -158,8 +160,6 @@ def save_row(worksheet_name, row_data_list):
 def update_data(worksheet_name, df):
     sh = get_connection()
     ws = sh.worksheet(worksheet_name)
-    # Important: If we renamed columns in memory, we must revert before saving? 
-    # Or simply update. Updating with 'name_en' is better for consistency.
     ws.clear()
     ws.update([df.columns.values.tolist()] + df.values.tolist())
 
@@ -174,6 +174,31 @@ def update_user_profile_in_db(username, new_name, new_pass):
             return True
         return False
     except Exception as e: return False
+
+# --- دالة تحديث طلب المشرف ---
+def update_request_data(req_id, new_qty, new_unit):
+    try:
+        sh = get_connection()
+        ws = sh.worksheet('requests')
+        cell = ws.find(str(req_id))
+        if cell:
+            ws.update_cell(cell.row, 7, int(new_qty))
+            ws.update_cell(cell.row, 11, str(new_unit))
+            return True
+        return False
+    except: return False
+
+# --- دالة حذف طلب المشرف ---
+def delete_request_data(req_id):
+    try:
+        sh = get_connection()
+        ws = sh.worksheet('requests')
+        cell = ws.find(str(req_id))
+        if cell:
+            ws.delete_rows(cell.row)
+            return True
+        return False
+    except: return False
 
 def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
@@ -210,7 +235,7 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
     except Exception as e:
         return False, str(e)
 
-def update_local_inventory_record(region, item_en, item_ar, new_qty):
+def update_local_inventory_record(region, item_en, new_qty):
     try:
         sh = get_connection()
         ws = sh.worksheet('local_inventory')
@@ -219,7 +244,6 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         
         if not df.empty:
             df['clean_reg'] = df['region'].astype(str).str.strip()
-            # Handle item_en column check
             col_name = 'item_en' if 'item_en' in df.columns else 'name_en'
             df['clean_item'] = df[col_name].astype(str).str.strip()
             mask = (df['clean_reg'] == str(region).strip()) & (df['clean_item'] == str(item_en).strip())
@@ -230,7 +254,7 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
             ws.update_cell(row_idx + 2, 4, int(new_qty))
             ws.update_cell(row_idx + 2, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
         else:
-            ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
+            ws.append_row([region, item_en, item_en, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
         return True
     except: return False
 
@@ -352,9 +376,14 @@ else:
 
         st.markdown("---")
         st.subheader(txt['pending_reqs'])
-        pending_all = reqs[reqs['status'] == txt['pending']] if not reqs.empty else pd.DataFrame()
+        
+        pending_all = pd.DataFrame()
+        if not reqs.empty:
+            reqs['status'] = reqs['status'].astype(str).str.strip()
+            pending_all = reqs[reqs['status'] == 'Pending']
+        
         if pending_all.empty:
-            st.success("✅")
+            st.success("✅ No pending requests")
         else:
             regions = pending_all['region'].unique()
             for region in regions:
@@ -362,7 +391,6 @@ else:
                     region_reqs = pending_all[pending_all['region'] == region]
                     for index, row in region_reqs.iterrows():
                         with st.container(border=True):
-                            # Safe Get for name_en to avoid KeyError
                             disp_name = row.get('name_en', row.get('item_en', 'Unknown Item'))
                             st.markdown(f"**📦 {disp_name}**")
                             req_u = row['unit'] if 'unit' in row else '-'
@@ -389,13 +417,16 @@ else:
         tab_issue, tab_req_sk, tab_stocktake = st.tabs([txt['approved_reqs'], txt['sk_request'], txt['stock_take_central']])
         
         with tab_issue:
-            approved = reqs[reqs['status'] == txt['approved']] if not reqs.empty else pd.DataFrame()
+            approved = pd.DataFrame()
+            if not reqs.empty:
+                reqs['status'] = reqs['status'].astype(str).str.strip()
+                approved = reqs[reqs['status'] == 'Approved']
+                
             if approved.empty:
                 st.info("✅")
             else:
                 for index, row in approved.iterrows():
                     with st.container(border=True):
-                        # Safe Get
                         disp_name = row.get('name_en', row.get('item_en', 'Unknown Item'))
                         st.markdown(f"**📦 {disp_name}**")
                         req_u = row['unit'] if 'unit' in row else '-'
@@ -404,7 +435,6 @@ else:
                         issue_qty = st.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iq_{row['req_id']}")
                         
                         if st.button(txt['issue'], key=f"btn_is_{row['req_id']}", use_container_width=True):
-                            # Use safe get for item_en passing to function
                             item_name_val = row.get('name_en', row.get('item_en'))
                             status, msg = update_central_inventory_with_log(item_name_val, "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}", req_u)
                             if status:
@@ -420,7 +450,7 @@ else:
                                         local_inv_df['clean_item'] = local_inv_df[local_inv_col].astype(str).str.strip()
                                         m = local_inv_df[(local_inv_df['clean_reg']==str(row['region']).strip()) & (local_inv_df['clean_item']==str(item_name_val).strip())]
                                         if not m.empty: cur = int(m.iloc[0]['qty'])
-                                    update_local_inventory_record(row['region'], item_name_val, item_name_val, cur + issue_qty)
+                                    update_local_inventory_record(row['region'], item_name_val, cur + issue_qty)
                                 except: pass 
                                 st.success("OK")
                                 time.sleep(1)
@@ -479,6 +509,7 @@ else:
         
         with t_req:
             req_area = st.selectbox(txt['select_area'], AREAS, key="sup_req_area")
+            
             if ntcc_items.empty:
                 st.warning(txt['no_items'])
             else:
@@ -499,13 +530,49 @@ else:
                         st.success("✅")
                         time.sleep(1)
                         st.rerun()
+            
             st.markdown("---")
+            
+            # --- My Pending Requests (EDIT/CANCEL) ---
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
-                # Updated columns to show
+                if 'status' in my_reqs.columns:
+                    my_reqs['status'] = my_reqs['status'].astype(str).str.strip()
+                pending_reqs = my_reqs[my_reqs['status'] == 'Pending']
+                
+                if not pending_reqs.empty:
+                    st.subheader(txt['my_pending'])
+                    for idx, row in pending_reqs.iterrows():
+                        with st.expander(f"⚙️ {row.get('name_en', 'Item')} ({row['qty']}) - Click to Manage"):
+                            c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
+                            
+                            new_qty_edit = c1.number_input("New Qty", 1, 1000, int(row['qty']), key=f"edit_q_{row['req_id']}")
+                            curr_unit = row.get('unit', 'Piece')
+                            u_idx = 0 if curr_unit == 'Piece' else 1
+                            new_unit_edit = c2.radio("Unit", ['Piece', 'Carton'], index=u_idx, key=f"edit_u_{row['req_id']}", horizontal=True)
+                            
+                            # زر التحديث
+                            if c3.button(txt['update_req'], key=f"save_{row['req_id']}"):
+                                if update_request_data(row['req_id'], new_qty_edit, new_unit_edit):
+                                    st.success("Updated")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else: st.error("Error")
+                            
+                            # زر الحذف
+                            if c4.button(txt['cancel_req'], key=f"del_{row['req_id']}"):
+                                if delete_request_data(row['req_id']):
+                                    st.success(txt['cancel_confirm'])
+                                    time.sleep(1)
+                                    st.rerun()
+                                else: st.error("Error")
+                                    
+                st.write("---")
+                st.caption("Request History:")
                 cols_to_show = ['name_en', 'qty', 'status', 'region']
                 if 'unit' in my_reqs.columns: cols_to_show.insert(2, 'unit')
+                if 'item_en' in my_reqs.columns: my_reqs = my_reqs.rename(columns={'item_en': 'name_en'})
                 
                 st.dataframe(my_reqs[[c for c in cols_to_show if c in my_reqs.columns]], use_container_width=True)
 
@@ -519,12 +586,11 @@ else:
                     current_qty = 0
                     if not local_inv.empty:
                         local_inv['clean_reg'] = local_inv['region'].astype(str).str.strip()
-                        # Handle varied column names in local_inventory
                         li_item_col = 'item_en' if 'item_en' in local_inv.columns else 'name_en'
                         local_inv['clean_item'] = local_inv[li_item_col].astype(str).str.strip()
                         match = local_inv[(local_inv['clean_reg'] == str(view_area).strip()) & (local_inv['clean_item'] == str(row['name_en']).strip())]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
-                    d_name = row['name_en'] # English Name
+                    d_name = row['name_en']
                     items_list.append({"disp": d_name, "name_en": row['name_en'], "current_qty": current_qty})
                 
                 selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
@@ -535,7 +601,7 @@ else:
                         st.caption(f"{txt['current_local']} {selected_data['current_qty']} (in {view_area})")
                         new_val = st.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'])
                         if st.button(txt['update_btn'], use_container_width=True):
-                            update_local_inventory_record(view_area, selected_data['name_en'], selected_data['name_en'], new_val)
+                            update_local_inventory_record(view_area, selected_data['name_en'], new_val)
                             st.success("✅")
                             time.sleep(1)
                             st.rerun()
