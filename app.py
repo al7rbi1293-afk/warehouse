@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import io
 import uuid
+import time # مكتبة للانتظار قليلاً
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -92,6 +93,8 @@ else:
     st.markdown("<style>.stApp {direction: ltr; text-align: left;}</style>", unsafe_allow_html=True)
 
 # --- الاتصال بـ Google Sheets ---
+# نستخدم التخزين المؤقت للاتصال فقط، وليس للبيانات، لضمان السرعة مع التحديث
+@st.cache_resource
 def get_connection():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -100,6 +103,7 @@ def get_connection():
     sheet = client.open("WMS_Database")
     return sheet
 
+# إزالة الكاش عن البيانات لضمان جلب أحدث نسخة دائماً عند التحديث
 def load_data(worksheet_name):
     try:
         sh = get_connection()
@@ -124,7 +128,6 @@ def update_data(worksheet_name, df):
     ws.clear()
     ws.update([df.columns.values.tolist()] + df.values.tolist())
 
-# --- دالة خاصة لتحديث الجرد المحلي ---
 def update_local_inventory_record(region, item_en, item_ar, new_qty):
     try:
         sh = get_connection()
@@ -132,22 +135,17 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         data = ws.get_all_records()
         df = pd.DataFrame(data)
         
-        # البحث هل المادة موجودة لهذه المنطقة؟
         if not df.empty:
             mask = (df['region'] == region) & (df['item_en'] == item_en)
         else:
             mask = pd.Series([False])
 
         if mask.any():
-            # تحديث الكمية الموجودة
             row_idx = df.index[mask][0]
-            # إضافة 2 لأن إندكس الباندا يبدأ من 0 والهيدر يأخذ 1 في جوجل شيت
             cell_row = row_idx + 2 
-            # نفترض أن العمود 4 هو الكمية والعمود 5 هو التاريخ
             ws.update_cell(cell_row, 4, int(new_qty))
             ws.update_cell(cell_row, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
         else:
-            # إضافة صف جديد للجرد
             ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
         return True
     except Exception as e:
@@ -205,18 +203,18 @@ else:
     if info['role'] == 'manager':
         st.header(f"👨‍💼 {txt['manager_role']}")
         
-        # 1. الطلبات المعلقة
-        st.subheader(txt['pending_reqs'])
+        # تحميل البيانات
         reqs = load_data('requests')
         inv = load_data('inventory')
         
+        # 1. الطلبات المعلقة
+        st.subheader(txt['pending_reqs'])
         pending_df = reqs[reqs['status'] == txt['pending']] if not reqs.empty else pd.DataFrame()
         
         if pending_df.empty:
             st.info("لا توجد طلبات معلقة")
         else:
             for index, row in pending_df.iterrows():
-                # جلب الكمية المتوفرة في المخزن المحلي لهذا المشرف لعرضها للمدير
                 local_inv_df = load_data('local_inventory')
                 local_stock_val = 0
                 if not local_inv_df.empty:
@@ -226,7 +224,7 @@ else:
 
                 with st.expander(f"{row['item_ar']} | الكمية: {row['qty']} | الفرع: {row['region']}", expanded=True):
                     c1, c2, c3 = st.columns([2,1,1])
-                    c1.info(f"💡 المخزون المحلي لدى الفرع من هذه المادة: **{local_stock_val}**")
+                    c1.info(f"💡 المخزون المحلي لدى الفرع: **{local_stock_val}**")
                     
                     if c2.button(txt['approve'], key=f"app_{row['req_id']}"):
                         item_match = inv[inv['name_en'] == row['item_en']]
@@ -239,13 +237,13 @@ else:
                                 update_data('inventory', inv)
                                 update_data('requests', reqs)
                                 
-                                # تحديث المخزون المحلي للمشرف تلقائياً عند القبول (اختياري)
-                                # هنا نزيد الكمية في المخزون المحلي
+                                # تحديث المخزون المحلي
                                 current_local = local_stock_val + int(row['qty'])
                                 update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], current_local)
                                 
                                 st.success("Approved")
-                                st.rerun()
+                                time.sleep(1) # تأخير بسيط للسماح لجوجل بالحفظ
+                                st.rerun() # تحديث الصفحة تلقائياً
                             else: st.error(txt['err_qty'])
                         else: st.error("Item missing")
                     
@@ -255,11 +253,14 @@ else:
                             reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['rejected']
                             reqs.loc[reqs['req_id'] == row['req_id'], 'reason'] = reason
                             update_data('requests', reqs)
-                            st.rerun()
+                            st.warning("Rejected")
+                            time.sleep(1)
+                            st.rerun() # تحديث الصفحة تلقائياً
+                        else: st.error("Reason required")
 
         st.markdown("---")
         
-        # 2. تقارير الجرد المحلي للفروع (جديد)
+        # 2. تقارير الجرد المحلي
         st.subheader(txt['local_inv_mgr'])
         local_data = load_data('local_inventory')
         if not local_data.empty:
@@ -275,46 +276,40 @@ else:
             
             b = io.BytesIO()
             with pd.ExcelWriter(b, engine='openpyxl') as w: display_local.to_excel(w, index=False)
-            st.download_button(f"{txt['download_excel']} (Local Inventory)", b.getvalue(), "local_inventory.xlsx")
-        else:
-            st.warning("لا يوجد بيانات جرد محلي حتى الآن")
+            st.download_button(f"{txt['download_excel']}", b.getvalue(), "local_inventory.xlsx")
 
-        # 3. إدارة المواد (المدير فقط يضيف المواد للنظام)
+        # 3. إدارة المواد
         with st.expander(txt['add_item']):
             c1, c2, c3 = st.columns(3)
             na = c1.text_input(txt['name_ar'])
             ne = c1.text_input(txt['name_en'])
             cat = c2.selectbox(txt['category'], txt['cats'])
-            q = c3.number_input(txt['qty'], 0, 99999, 0, help="الكمية في المستودع المركزي")
+            q = c3.number_input(txt['qty'], 0, 99999, 0)
             if st.button(txt['add_item']):
                 if na and ne:
                     save_row('inventory', [na, ne, get_cat_key(cat), q, 'Available'])
-                    st.success("تم تعريف المادة في النظام")
-                    st.rerun()
+                    st.success("Added")
+                    time.sleep(1)
+                    st.rerun() # تحديث الصفحة تلقائياً
 
     # ================= واجهة المشرف =================
     else:
         st.header(f"👷 {txt['req_form']} & {txt['local_inv']}")
         
-        # تحميل البيانات
-        inv = load_data('inventory') # مخزون مركزي لجلب الأسماء
-        local_inv = load_data('local_inventory') # مخزون محلي
-        
+        inv = load_data('inventory')
+        local_inv = load_data('local_inventory')
         avail_items = inv[inv['status'] == 'Available']
         
         if avail_items.empty:
             st.warning(txt['no_items'])
         else:
-            # دمج البيانات لعرض الجرد الحالي للمشرف
             opts = avail_items.apply(lambda x: f"{x['name_ar']} | {x['name_en']}", axis=1)
             selection = st.selectbox(txt['select_item'], opts)
             
             if selection:
-                # استخراج بيانات المادة المختارة
                 idx = opts[opts == selection].index[0]
                 item_data = avail_items.loc[idx]
                 
-                # البحث عن الكمية المحلية الحالية لهذه المادة في منطقة المشرف
                 current_local_qty = 0
                 if not local_inv.empty:
                     match = local_inv[(local_inv['region'] == info['region']) & (local_inv['item_en'] == item_data['name_en'])]
@@ -325,7 +320,6 @@ else:
                 
                 col_a, col_b = st.columns(2)
                 
-                # الخيار 1: طلب مواد من المركزي
                 with col_a:
                     st.markdown("### 📥 طلب مواد")
                     req_qty = st.number_input(txt['qty_req'], 0, 1000, 0)
@@ -338,20 +332,20 @@ else:
                                 txt['pending'], ""
                             ])
                             st.success(txt['success_req'])
+                            time.sleep(1)
+                            st.rerun() # تحديث الصفحة تلقائياً
                         else:
-                            st.warning("حدد الكمية المطلوبة")
+                            st.warning("الكمية 0")
 
-                # الخيار 2: تحديث الجرد المحلي (دون طلب)
                 with col_b:
-                    st.markdown("### 📝 جرد (تحديث المتوفر)")
-                    # نجعل القيمة الافتراضية هي الموجودة حالياً
+                    st.markdown("### 📝 جرد (تحديث)")
                     new_local_qty = st.number_input(txt['qty_local'], 0, 9999, int(current_local_qty))
                     
                     if st.button(txt['update_btn']):
                         if update_local_inventory_record(info['region'], item_data['name_en'], item_data['name_ar'], new_local_qty):
                             st.success(txt['success_update'])
-                            # مهلة بسيطة ثم تحديث الصفحة لرؤية الرقم الجديد
-                            st.rerun()
+                            time.sleep(1)
+                            st.rerun() # تحديث الصفحة تلقائياً
 
         st.markdown("---")
         st.subheader("📋 حالة طلباتي السابقة")
