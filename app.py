@@ -10,18 +10,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="collapsed")
 
-# --- القوائم للترجمة ---
+# --- القوائم والبيانات الثابتة ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 CATS_AR = ["كهربائية", "كيميائية", "أدوات يدوية", "مستهلكات", "سلامة", "أخرى"]
 LOCATIONS = ["NTCC", "SNC"]
 
-# --- الترجمة (تمت إضافة حقوق الملكية) ---
+# قائمة المناطق الجديدة الشاملة
+AREAS = [
+    "Ground floor", "1st floor", 
+    "2nd floor O.R", "2nd floor ICU 28", "2nd floor RT and Waiting area", "2nd floor ICU 29",
+    "Ward 30", "Ward 31", "Ward 40", "Ward 41", "Ward 50", "Ward 51",
+    "Service area", "OPD", "E.R", "x-rays", "neurodiagnostic"
+]
+
+# --- الترجمة ---
 T = {
     "ar": {
         "app_title": "نظام المستودعات الموحد",
         "login_page": "دخول", "register_page": "تسجيل",
         "username": "المستخدم", "password": "كلمة المرور",
-        "fullname": "الاسم", "region": "المنطقة",
+        "fullname": "الاسم", "region": "المنطقة الرئيسية",
         "login_btn": "دخول", "register_btn": "تسجيل جديد", "logout": "خروج",
         "manager_role": "الإدارة", "supervisor_role": "مشرف", "storekeeper_role": "أمين مستودع",
         "name_ar": "اسم عربي", "name_en": "اسم انجليزي", "category": "تصنيف",
@@ -58,13 +66,16 @@ T = {
         "logs": "سجل الحركات",
         "modify_stock": "تعديل / جرد",
         "stock_monitor": "مراقبة المخزون",
-        "copyright": "جميع الحقوق محفوظة © لمساعد مدير مشروع الأعصاب عبدالعزيز الحازمي. يمنع النشر أو الاستغلال بدون إذن."
+        "copyright": "جميع الحقوق محفوظة © لمساعد مدير مشروع الأعصاب عبدالعزيز الحازمي. يمنع النشر أو الاستغلال بدون إذن.",
+        "select_area": "📍 القسم / المنطقة المستهدفة",
+        "area_label": "القسم",
+        "unit": "الوحدة", "piece": "حبة", "carton": "كرتون"
     },
     "en": {
         "app_title": "Unified WMS System",
         "login_page": "Login", "register_page": "Register",
         "username": "Username", "password": "Password",
-        "fullname": "Name", "region": "Region",
+        "fullname": "Name", "region": "Main Region",
         "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
         "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
         "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
@@ -101,7 +112,10 @@ T = {
         "logs": "Activity Logs",
         "modify_stock": "Modify / Stock Take",
         "stock_monitor": "Stock Monitor",
-        "copyright": "All rights reserved © to Assistant Project Manager of Nerves Project, Abdulaziz Alhazmi. Unauthorized use prohibited."
+        "copyright": "All rights reserved © to Assistant Project Manager of Nerves Project, Abdulaziz Alhazmi. Unauthorized use prohibited.",
+        "select_area": "📍 Target Area / Section",
+        "area_label": "Area",
+        "unit": "Unit", "piece": "Piece", "carton": "Carton"
     }
 }
 
@@ -110,10 +124,9 @@ lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- CSS للجوال + التذييل (Footer) ---
+# --- CSS وتذييل الحقوق ---
 st.markdown(f"""
     <style>
-    /* تنسيق النصوص حسب اللغة */
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
         direction: {'rtl' if lang == 'ar' else 'ltr'}; 
         text-align: {'right' if lang == 'ar' else 'left'}; 
@@ -123,34 +136,17 @@ st.markdown(f"""
         text-align: {'right' if lang == 'ar' else 'left'}; 
     }}
     .stButton button {{ width: 100%; }}
-    
-    /* تنسيق حقوق الملكية (ثابت أسفل اليسار) */
     .copyright-footer {{
-        position: fixed;
-        left: 10px;
-        bottom: 5px;
-        background-color: rgba(255, 255, 255, 0.85); /* خلفية شبه شفافة لضمان القراءة */
-        padding: 5px 10px;
-        border-radius: 5px;
-        font-size: 10px; /* خط صغير وأنيق */
-        color: #333;
-        z-index: 99999;
-        pointer-events: none; /* يسمح بالضغط من خلاله إذا غطى شيئاً */
-        border: 1px solid #ddd;
+        position: fixed; left: 10px; bottom: 5px;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 5px 10px; border-radius: 5px; font-size: 10px;
+        color: #333; z-index: 99999; pointer-events: none; border: 1px solid #ddd;
     }}
-    /* تعديل الوضع الليلي للخلفية */
     @media (prefers-color-scheme: dark) {{
-        .copyright-footer {{
-            background-color: rgba(14, 17, 23, 0.85);
-            color: #fafafa;
-            border: 1px solid #444;
-        }}
+        .copyright-footer {{ background-color: rgba(14, 17, 23, 0.9); color: #fafafa; border: 1px solid #444; }}
     }}
     </style>
-    
-    <div class="copyright-footer">
-        {txt['copyright']}
-    </div>
+    <div class="copyright-footer">{txt['copyright']}</div>
 """, unsafe_allow_html=True)
 
 # --- الاتصال بـ Google Sheets ---
@@ -184,7 +180,7 @@ def update_data(worksheet_name, df):
     ws.clear()
     ws.update([df.columns.values.tolist()] + df.values.tolist())
 
-def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc):
+def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
         sh = get_connection()
         ws_inv = sh.worksheet('inventory')
@@ -197,7 +193,9 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
             current_qty = int(df_inv.at[idx, 'qty'])
             new_qty = max(0, current_qty + change_qty)
             ws_inv.update_cell(idx + 2, 4, new_qty) 
-            log_entry = [datetime.now().strftime("%Y-%m-%d %H:%M"), user, action_desc, item_en, location, change_qty, new_qty]
+            # إضافة نوع الوحدة (Unit) في السجل للتوثيق
+            log_desc = f"{action_desc} ({unit_type})"
+            log_entry = [datetime.now().strftime("%Y-%m-%d %H:%M"), user, log_desc, item_en, location, change_qty, new_qty]
             ws_log.append_row(log_entry)
             return True
         else: return False
@@ -294,20 +292,23 @@ else:
                     sel_item = st.selectbox(f"{txt['select_item']} ({warehouse_name}):", item_options, key=f"sel_{warehouse_name}")
                     current_row = wh_data[wh_data[NAME_COL] == sel_item].iloc[0]
                     st.write(f"{txt['current_stock_display']} **{current_row['qty']}**")
-                    c1, c2 = st.columns(2)
-                    action = c1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key=f"act_{warehouse_name}", horizontal=True)
-                    amount = c2.number_input(txt['amount'], 1, 10000, 1, key=f"amt_{warehouse_name}")
+                    
+                    # خيار تحديد الوحدة للجرد
+                    st.write("---")
+                    c_unit, c_act, c_amt = st.columns(3)
+                    mgr_unit = c_unit.radio(txt['unit'], [txt['piece'], txt['carton']], key=f"u_{warehouse_name}")
+                    action = c_act.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key=f"act_{warehouse_name}")
+                    amount = c_amt.number_input(txt['amount'], 1, 10000, 1, key=f"amt_{warehouse_name}")
+                    
                     if st.button(txt['execute_update'], key=f"btn_{warehouse_name}", use_container_width=True):
                         change = amount if action == txt['add_stock'] else -amount
-                        if update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update"):
+                        if update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update", mgr_unit):
                             st.success(txt['success_update'])
                             time.sleep(1)
                             st.rerun()
 
-        with tab_view_ntcc:
-            render_stock_manager("NTCC")
-        with tab_view_snc:
-            render_stock_manager("SNC")
+        with tab_view_ntcc: render_stock_manager("NTCC")
+        with tab_view_snc: render_stock_manager("SNC")
 
         st.markdown("---")
         st.subheader(txt['pending_reqs'])
@@ -323,9 +324,10 @@ else:
                         with st.container(border=True):
                             disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
                             st.markdown(f"**📦 {disp_name}**")
-                            c1, c2 = st.columns(2)
-                            c1.caption(f"{txt['qty']}: **{row['qty']}**")
-                            c2.caption(f"👤 {row['supervisor']}")
+                            # عرضنا الوحدة هنا (حبة / كرتون)
+                            req_u = row['unit'] if 'unit' in row else '-'
+                            st.caption(f"{txt['area_label']}: **{row['region']}** | {txt['qty']}: **{row['qty']} ({req_u})**")
+                            st.caption(f"👤 {row['supervisor']}")
                             b1, b2 = st.columns(2)
                             if b1.button(txt['approve'], key=f"ap_{row['req_id']}", use_container_width=True):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['approved']
@@ -355,11 +357,12 @@ else:
                     with st.container(border=True):
                         disp_name = row['item_ar'] if lang == 'ar' else row['item_en']
                         st.markdown(f"**📦 {disp_name}**")
-                        st.caption(f"📍 {row['region']} | {txt['qty_req']}: **{row['qty']}**")
+                        req_u = row['unit'] if 'unit' in row else '-'
+                        st.caption(f"📍 {row['region']} | {txt['qty_req']}: **{row['qty']} ({req_u})**")
                         st.caption(f"SOURCE: NTCC (Internal)")
                         issue_qty = st.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iq_{row['req_id']}")
                         if st.button(txt['issue'], key=f"btn_is_{row['req_id']}", use_container_width=True):
-                            if update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}"):
+                            if update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}", req_u):
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['issued']
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'qty'] = issue_qty
                                 update_data('requests', reqs)
@@ -382,14 +385,19 @@ else:
             else:
                 opts = wh_inv.apply(lambda x: x[NAME_COL], axis=1)
                 sel_sk = st.selectbox(txt['select_item'], opts, key="sk_it_sel")
-                qty_sk = st.number_input(txt['qty_req'], 1, 1000, 1, key="sk_q")
+                
+                c_u, c_q = st.columns(2)
+                sk_unit = c_u.radio(txt['unit'], [txt['piece'], txt['carton']], key="sk_u_req", horizontal=True)
+                qty_sk = c_q.number_input(txt['qty_req'], 1, 1000, 1, key="sk_q")
+                
                 if st.button(txt['send_req'], key="sk_snd", use_container_width=True):
                     item_data = wh_inv[wh_inv[NAME_COL] == sel_sk].iloc[0]
+                    # حفظ الطلب مع الوحدة
                     save_row('requests', [
                         str(uuid.uuid4()), info['name'], info['region'],
                         item_data['name_ar'], item_data['name_en'], item_data['category'],
                         qty_sk, datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        txt['pending'], f"Source: {wh_source}"
+                        txt['pending'], f"Source: {wh_source}", sk_unit
                     ])
                     st.success("✅")
 
@@ -401,12 +409,15 @@ else:
                 tk_item = st.selectbox(txt['select_item'], tk_opts, key="tk_it")
                 tk_row = tgt_inv[tgt_inv[NAME_COL] == tk_item].iloc[0]
                 st.info(f"{txt['current_stock_display']} {tk_row['qty']}")
-                c_tk1, c_tk2 = st.columns(2)
-                op_tk = c_tk1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], horizontal=True, label_visibility="collapsed")
+                
+                c_tk0, c_tk1, c_tk2 = st.columns(3)
+                tk_unit = c_tk0.radio(txt['unit'], [txt['piece'], txt['carton']], key="tk_u")
+                op_tk = c_tk1.radio(txt['select_action'], [txt['add_stock'], txt['reduce_stock']], key="tk_act")
                 val_tk = c_tk2.number_input(txt['amount'], 1, 1000, 1)
+                
                 if st.button(txt['update_btn'], key="tk_save", use_container_width=True):
                     change = val_tk if op_tk == txt['add_stock'] else -val_tk
-                    if update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust"):
+                    if update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust", tk_unit):
                         st.success("OK")
                         time.sleep(1)
                         st.rerun()
@@ -419,20 +430,27 @@ else:
         ntcc_items = inv[(inv['status'] == 'Available') & (inv['location'] == 'NTCC')] if 'location' in inv.columns else pd.DataFrame()
         
         with t_req:
+            req_area = st.selectbox(txt['select_area'], AREAS, key="sup_req_area")
+            
             if ntcc_items.empty:
                 st.warning(txt['no_items'])
             else:
                 with st.container(border=True):
                     opts = ntcc_items.apply(lambda x: x[NAME_COL], axis=1)
                     sel = st.selectbox(txt['select_item'], opts)
-                    qty = st.number_input(txt['qty_req'], 1, 1000, 1)
+                    
+                    # خيار الوحدة (حبة / كرتون)
+                    c_u, c_q = st.columns(2)
+                    req_unit = c_u.radio(txt['unit'], [txt['piece'], txt['carton']], horizontal=True)
+                    qty = c_q.number_input(txt['qty_req'], 1, 1000, 1)
+                    
                     if st.button(txt['send_req'], use_container_width=True):
                         item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
                         save_row('requests', [
-                            str(uuid.uuid4()), info['name'], info['region'],
+                            str(uuid.uuid4()), info['name'], req_area,
                             item['name_ar'], item['name_en'], item['category'],
                             qty, datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            txt['pending'], ""
+                            txt['pending'], "", req_unit # حفظ الوحدة هنا
                         ])
                         st.success("✅")
                         time.sleep(1)
@@ -441,10 +459,12 @@ else:
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
-                disp_df = my_reqs[['item_ar' if lang=='ar' else 'item_en', 'qty', 'status']]
+                # عرض الوحدة في الجدول
+                disp_df = my_reqs[['item_ar' if lang=='ar' else 'item_en', 'qty', 'unit' if 'unit' in my_reqs.columns else 'status', 'status', 'region']]
                 st.dataframe(disp_df, use_container_width=True)
 
         with t_inv:
+            view_area = st.selectbox(txt['select_area'], AREAS, key="sup_view_area")
             if ntcc_items.empty:
                 st.info(txt['no_items'])
             else:
@@ -452,19 +472,20 @@ else:
                 for idx, row in ntcc_items.iterrows():
                     current_qty = 0
                     if not local_inv.empty:
-                        match = local_inv[(local_inv['region'] == info['region']) & (local_inv['item_en'] == row['name_en'])]
+                        match = local_inv[(local_inv['region'] == view_area) & (local_inv['item_en'] == row['name_en'])]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
                     d_name = row['name_ar'] if lang == 'ar' else row['name_en']
                     items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
+                
                 selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
                 selected_data = next((item for item in items_list if item["disp"] == selected_item_inv), None)
                 if selected_data:
                     with st.container(border=True):
                         st.markdown(f"**{selected_data['disp']}**")
-                        st.caption(f"{txt['current_local']} {selected_data['current_qty']}")
+                        st.caption(f"{txt['current_local']} {selected_data['current_qty']} (في {view_area})")
                         new_val = st.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'])
                         if st.button(txt['update_btn'], use_container_width=True):
-                            update_local_inventory_record(info['region'], selected_data['name_en'], selected_data['name_ar'], new_val)
+                            update_local_inventory_record(view_area, selected_data['name_en'], selected_data['name_ar'], new_val)
                             st.success("✅")
                             time.sleep(1)
                             st.rerun()
