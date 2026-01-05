@@ -6,9 +6,9 @@ import uuid
 import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import extra_streamlit_components as stx # مكتبة الكوكيز الجديدة
+import extra_streamlit_components as stx
 
-# --- 1. إعدادات الصفحة (السلايدر مفتوح للجميع) ---
+# --- 1. إعدادات الصفحة ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
 
 # --- إدارة الجلسة ---
@@ -16,14 +16,13 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- إعداد مدير الكوكيز (Cookie Manager) ---
-# هذا الجزء هو المسؤول عن حفظ تسجيل الدخول
+# --- مدير الكوكيز ---
 def get_manager():
     return stx.CookieManager()
 
 cookie_manager = get_manager()
 
-# --- 2. التحكم الأمني الصارم (CSS) ---
+# --- 2. التحكم الأمني (CSS) ---
 def inject_security_css():
     st.markdown("""
         <style>
@@ -35,7 +34,6 @@ def inject_security_css():
         </style>
     """, unsafe_allow_html=True)
 
-# تطبيق المنطق الأمني
 should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
@@ -45,7 +43,7 @@ if st.session_state.logged_in:
 if should_hide:
     inject_security_css()
 
-# --- القوائم والبيانات الثابتة ---
+# --- القوائم والبيانات ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 CATS_AR = ["كهربائية", "كيميائية", "أدوات يدوية", "مستهلكات", "سلامة", "أخرى"]
 LOCATIONS = ["NTCC", "SNC"]
@@ -159,7 +157,6 @@ lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- CSS وتذييل الحقوق ---
 st.markdown(f"""
     <style>
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
@@ -219,7 +216,6 @@ def update_user_profile_in_db(username, new_name, new_pass):
     try:
         sh = get_connection()
         ws = sh.worksheet('users')
-        data = ws.get_all_records()
         cell = ws.find(str(username))
         if cell:
             ws.update_cell(cell.row, 2, str(new_pass))
@@ -228,6 +224,7 @@ def update_user_profile_in_db(username, new_name, new_pass):
         return False
     except Exception as e: return False
 
+# --- دالة التحديث القوية (Robust Update Function) ---
 def update_central_inventory_with_log(item_en, location, change_qty, user, action_desc, unit_type="Piece"):
     try:
         sh = get_connection()
@@ -235,18 +232,41 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
         ws_log = sh.worksheet('stock_logs')
         inv_data = ws_inv.get_all_records()
         df_inv = pd.DataFrame(inv_data)
-        mask = (df_inv['name_en'] == item_en) & (df_inv['location'] == location)
+        
+        # تنظيف البيانات قبل المقارنة (إزالة المسافات)
+        target_item = str(item_en).strip().lower()
+        target_loc = str(location).strip().lower()
+        
+        # إنشاء أعمدة مؤقتة للمقارنة
+        df_inv['clean_name'] = df_inv['name_en'].astype(str).str.strip().str.lower()
+        df_inv['clean_loc'] = df_inv['location'].astype(str).str.strip().str.lower()
+        
+        # البحث
+        mask = (df_inv['clean_name'] == target_item) & (df_inv['clean_loc'] == target_loc)
+        
         if mask.any():
             idx = df_inv.index[mask][0]
-            current_qty = int(df_inv.at[idx, 'qty'])
+            
+            # معالجة الكمية الحالية بأمان
+            raw_qty = df_inv.at[idx, 'qty']
+            try:
+                current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
+            except:
+                current_qty = 0
+                
             new_qty = max(0, current_qty + change_qty)
+            
+            # تحديث الخلية (العمود 4 هو Qty)
             ws_inv.update_cell(idx + 2, 4, new_qty) 
+            
             log_desc = f"{action_desc} ({unit_type})"
             log_entry = [datetime.now().strftime("%Y-%m-%d %H:%M"), user, log_desc, item_en, location, change_qty, new_qty]
             ws_log.append_row(log_entry)
-            return True
-        else: return False
-    except: return False
+            return True, "Success"
+        else:
+            return False, f"Item '{item_en}' not found in location '{location}'"
+    except Exception as e:
+        return False, str(e)
 
 def update_local_inventory_record(region, item_en, item_ar, new_qty):
     try:
@@ -254,9 +274,14 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         ws = sh.worksheet('local_inventory')
         data = ws.get_all_records()
         df = pd.DataFrame(data)
+        
         if not df.empty:
-            mask = (df['region'] == region) & (df['item_en'] == item_en)
+            # تنظيف للمقارنة
+            df['clean_reg'] = df['region'].astype(str).str.strip()
+            df['clean_item'] = df['item_en'].astype(str).str.strip()
+            mask = (df['clean_reg'] == str(region).strip()) & (df['clean_item'] == str(item_en).strip())
         else: mask = pd.Series([False])
+        
         if mask.any():
             row_idx = df.index[mask][0]
             ws.update_cell(row_idx + 2, 4, int(new_qty))
@@ -266,12 +291,10 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
         return True
     except: return False
 
-# --- استرجاع الجلسة من الكوكيز (الخطوة الجديدة) ---
+# --- الكوكيز ---
 if not st.session_state.logged_in:
-    # محاولة قراءة الكوكيز
     cookie_user = cookie_manager.get(cookie="wms_user_pro")
     if cookie_user:
-        # إذا وجدنا كوكيز، نتأكد من قاعدة البيانات
         users = load_data('users')
         if not users.empty:
             users['username'] = users['username'].astype(str)
@@ -296,10 +319,8 @@ if not st.session_state.logged_in:
                     users['password'] = users['password'].astype(str)
                     match = users[(users['username']==u) & (users['password']==p)]
                     if not match.empty:
-                        # تسجيل دخول ناجح
                         st.session_state.logged_in = True
                         st.session_state.user_info = match.iloc[0].to_dict()
-                        # حفظ الكوكيز لمدة 7 أيام
                         cookie_manager.set("wms_user_pro", u, expires_at=datetime.now() + timedelta(days=7))
                         st.rerun()
                     else: st.error(txt['error_login'])
@@ -324,7 +345,6 @@ if not st.session_state.logged_in:
 else:
     info = st.session_state.user_info
     
-    # --- السلايدر (Sidebar) ---
     st.sidebar.markdown(f"### 👤 {info['name']}")
     st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
     
@@ -334,7 +354,6 @@ else:
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
-                # حذف الكوكيز لتسجيل الدخول الجديد
                 cookie_manager.delete("wms_user_pro")
                 time.sleep(2)
                 st.session_state.logged_in = False 
@@ -343,7 +362,6 @@ else:
 
     if st.sidebar.button(txt['logout'], use_container_width=True):
         st.session_state.logged_in = False
-        # حذف الكوكيز عند الخروج
         cookie_manager.delete("wms_user_pro")
         st.rerun()
 
@@ -377,10 +395,12 @@ else:
                     amount = c_amt.number_input(txt['amount'], 1, 10000, 1, key=f"amt_{warehouse_name}")
                     if st.button(txt['execute_update'], key=f"btn_{warehouse_name}", use_container_width=True):
                         change = amount if action == txt['add_stock'] else -amount
-                        if update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update", mgr_unit):
+                        status, msg = update_central_inventory_with_log(current_row['name_en'], warehouse_name, change, info['name'], "Manager Update", mgr_unit)
+                        if status:
                             st.success(txt['success_update'])
                             time.sleep(1)
                             st.rerun()
+                        else: st.error(f"Error: {msg}")
 
         with tab_view_ntcc: render_stock_manager("NTCC")
         with tab_view_snc: render_stock_manager("SNC")
@@ -435,21 +455,33 @@ else:
                         st.caption(f"📍 {row['region']} | {txt['qty_req']}: **{row['qty']} ({req_u})**")
                         st.caption(f"SOURCE: NTCC (Internal)")
                         issue_qty = st.number_input(txt['issue_qty_input'], 1, 9999, int(row['qty']), key=f"iq_{row['req_id']}")
+                        
                         if st.button(txt['issue'], key=f"btn_is_{row['req_id']}", use_container_width=True):
-                            if update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}", req_u):
+                            # هنا الإصلاح الرئيسي: التحقق من النتيجة وعرض الخطأ
+                            status, msg = update_central_inventory_with_log(row['item_en'], "NTCC", -issue_qty, info['name'], f"Issued to {row['region']}", req_u)
+                            if status:
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'status'] = txt['issued']
                                 reqs.loc[reqs['req_id'] == row['req_id'], 'qty'] = issue_qty
                                 update_data('requests', reqs)
-                                local_inv_df = load_data('local_inventory')
-                                cur = 0
-                                if not local_inv_df.empty:
-                                    m = local_inv_df[(local_inv_df['region']==row['region']) & (local_inv_df['item_en']==row['item_en'])]
-                                    if not m.empty: cur = int(m.iloc[0]['qty'])
-                                update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], cur + issue_qty)
+                                # تحديث محلي آمن
+                                try:
+                                    local_inv_df = load_data('local_inventory')
+                                    cur = 0
+                                    if not local_inv_df.empty:
+                                        # تنظيف للمقارنة
+                                        local_inv_df['clean_reg'] = local_inv_df['region'].astype(str).str.strip()
+                                        local_inv_df['clean_item'] = local_inv_df['item_en'].astype(str).str.strip()
+                                        m = local_inv_df[(local_inv_df['clean_reg']==str(row['region']).strip()) & (local_inv_df['clean_item']==str(row['item_en']).strip())]
+                                        if not m.empty: cur = int(m.iloc[0]['qty'])
+                                    update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], cur + issue_qty)
+                                except: pass 
+                                
                                 st.success("OK")
                                 time.sleep(1)
                                 st.rerun()
-                            else: st.error("Error")
+                            else: 
+                                st.error(f"خطأ في الصرف: {msg}")
+                                st.caption("تأكد من وجود المادة في مستودع NTCC بنفس الاسم الإنجليزي وتوفر الكمية")
 
         with tab_req_sk:
             wh_source = st.selectbox(txt['source_wh'], ["NTCC", "SNC"], key="sk_src_sel")
@@ -486,10 +518,12 @@ else:
                 val_tk = c_tk2.number_input(txt['amount'], 1, 1000, 1)
                 if st.button(txt['update_btn'], key="tk_save", use_container_width=True):
                     change = val_tk if op_tk == txt['add_stock'] else -val_tk
-                    if update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust", tk_unit):
+                    status, msg = update_central_inventory_with_log(tk_row['name_en'], tgt_wh, change, info['name'], "StoreKeeper Adjust", tk_unit)
+                    if status:
                         st.success("OK")
                         time.sleep(1)
                         st.rerun()
+                    else: st.error(msg)
 
     # ================= 3. واجهة المشرف (NTCC فقط) =================
     else:
@@ -536,7 +570,10 @@ else:
                 for idx, row in ntcc_items.iterrows():
                     current_qty = 0
                     if not local_inv.empty:
-                        match = local_inv[(local_inv['region'] == view_area) & (local_inv['item_en'] == row['name_en'])]
+                        # تنظيف المقارنة
+                        local_inv['clean_reg'] = local_inv['region'].astype(str).str.strip()
+                        local_inv['clean_item'] = local_inv['item_en'].astype(str).str.strip()
+                        match = local_inv[(local_inv['clean_reg'] == str(view_area).strip()) & (local_inv['clean_item'] == str(row['name_en']).strip())]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
                     d_name = row['name_ar'] if lang == 'ar' else row['name_en']
                     items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
