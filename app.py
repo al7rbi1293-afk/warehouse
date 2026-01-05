@@ -7,8 +7,45 @@ import time
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. إعدادات الصفحة (جعل السلايدر مفتوح افتراضياً) ---
+# --- 1. إعدادات الصفحة (السلايدر مفتوح للجميع) ---
 st.set_page_config(page_title="WMS Pro", layout="wide", initial_sidebar_state="expanded")
+
+# --- إدارة الجلسة (تعريف المتغيرات) ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_info = {}
+
+# --- 2. منطق الإخفاء والأمان (CSS) ---
+# القاعدة: نخفي الخيارات افتراضياً (لصفحة الدخول وللمستخدمين العاديين)
+should_hide = True
+
+# إذا سجل الدخول وكان الاسم abdulaziz، نلغي الإخفاء
+if st.session_state.logged_in:
+    username = str(st.session_state.user_info.get('username', '')).lower()
+    if username == 'abdulaziz':
+        should_hide = False
+
+# تطبيق الـ CSS بناءً على الشرط
+if should_hide:
+    # هذا الكود يخفي خيارات المطور والفوتر ولكنه يبقي زر السلايدر ظاهراً
+    HIDE_STYLES = """
+    <style>
+    /* إخفاء القائمة العلوية اليمين (3 نقاط) وزر Deploy */
+    [data-testid="stToolbar"] {visibility: hidden !important;}
+    
+    /* إخفاء خيارات إدارة التطبيق */
+    [data-testid="manage-app-button"] {display: none !important;}
+    
+    /* إخفاء الفوتر الافتراضي (Made with Streamlit) */
+    footer {visibility: hidden !important;}
+    
+    /* إخفاء الخط الملون في أعلى الصفحة */
+    [data-testid="stDecoration"] {display: none;}
+    
+    /* ملاحظة: لم نقم بإخفاء header بالكامل لضمان ظهور زر القائمة الجانبية */
+    </style>
+    """
+    st.markdown(HIDE_STYLES, unsafe_allow_html=True)
 
 # --- القوائم والبيانات الثابتة ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
@@ -124,30 +161,10 @@ lang = "ar" if lang_choice == "العربية" else "en"
 txt = T[lang]
 NAME_COL = 'name_ar' if lang == 'ar' else 'name_en'
 
-# --- 2. التحكم في إخفاء/إظهار خيارات المطور (المنطق الجديد) ---
-# الافتراضي: نخفي كل شيء
-hide_dev_options = True
-
-# التحقق: إذا كان مسجل دخول واسمه abdulaziz -> نظهر الخيارات
-if 'logged_in' in st.session_state and st.session_state.logged_in:
-    if str(st.session_state.user_info.get('username', '')).lower() == 'abdulaziz':
-        hide_dev_options = False
-
-if hide_dev_options:
-    HIDE_CSS = """
-        <style>
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-        [data-testid="stToolbar"] {visibility: hidden !important;}
-        [data-testid="manage-app-button"] {display: none !important;}
-        </style>
-    """
-    st.markdown(HIDE_CSS, unsafe_allow_html=True)
-
-# --- CSS التنسيق العام وحقوق الملكية ---
+# --- CSS وتذييل الحقوق ---
 st.markdown(f"""
     <style>
+    /* تنسيق النصوص والاتجاه */
     .stMarkdown, .stTextInput, .stNumberInput, .stSelectbox, .stDataFrame, .stRadio {{ 
         direction: {'rtl' if lang == 'ar' else 'ltr'}; 
         text-align: {'right' if lang == 'ar' else 'left'}; 
@@ -157,6 +174,8 @@ st.markdown(f"""
         text-align: {'right' if lang == 'ar' else 'left'}; 
     }}
     .stButton button {{ width: 100%; }}
+    
+    /* تذييل الحقوق */
     .copyright-footer {{
         position: fixed; left: 10px; bottom: 5px;
         background-color: rgba(255, 255, 255, 0.9);
@@ -251,11 +270,6 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
             ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
         return True
     except: return False
-
-# --- إدارة الجلسة ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_info = {}
 
 # === تسجيل الدخول ===
 if not st.session_state.logged_in:
