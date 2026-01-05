@@ -40,7 +40,7 @@ txt = {
     "fullname": "Full Name", "region": "Main Region",
     "login_btn": "Login", "register_btn": "Sign Up", "logout": "Logout",
     "manager_role": "Manager", "supervisor_role": "Supervisor", "storekeeper_role": "Store Keeper",
-    "name_ar": "Name (Ar)", "name_en": "Name (En)", "category": "Category",
+    "name_en": "Name", "category": "Category",
     "qty": "Qty", "cats": CATS_EN, "location": "Location",
     "requests_log": "Log", "inventory": "Inventory",
     "local_inv": "My Stock", "local_inv_mgr": "Branch Reports",
@@ -84,24 +84,18 @@ txt = {
 
 NAME_COL = 'name_en'
 
-# --- 2. Security & CSS Control ---
+# --- 2. CSS & Security ---
 def inject_security_css():
     st.markdown("""
         <style>
-        /* Hide Toolbar, Deploy, Manage App */
         [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
         .stDeployButton {visibility: hidden !important; display: none !important;}
         [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        
-        /* Hide Footer */
         footer {visibility: hidden !important;}
-        
-        /* Hide Decoration Line */
         [data-testid="stDecoration"] {display: none;}
         </style>
     """, unsafe_allow_html=True)
 
-# Logic: Hide by default, show only if user is 'abdulaziz'
 should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
@@ -111,7 +105,7 @@ if st.session_state.logged_in:
 if should_hide:
     inject_security_css()
 
-# --- General CSS & Copyright Footer ---
+# --- General CSS ---
 st.markdown(f"""
     <style>
     .stButton button {{ width: 100%; }}
@@ -194,10 +188,8 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
                 current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
             except:
                 current_qty = 0
-                
             new_qty = max(0, current_qty + change_qty)
             ws_inv.update_cell(idx + 2, 4, new_qty) 
-            
             log_desc = f"{action_desc} ({unit_type})"
             log_entry = [datetime.now().strftime("%Y-%m-%d %H:%M"), user, log_desc, item_en, location, change_qty, new_qty]
             ws_log.append_row(log_entry)
@@ -207,7 +199,8 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
     except Exception as e:
         return False, str(e)
 
-def update_local_inventory_record(region, item_en, item_ar, new_qty):
+# Updated Function: Uses ONLY name_en (Replaced item_ar with name_en)
+def update_local_inventory_record(region, item_en, new_qty):
     try:
         sh = get_connection()
         ws = sh.worksheet('local_inventory')
@@ -225,13 +218,13 @@ def update_local_inventory_record(region, item_en, item_ar, new_qty):
             ws.update_cell(row_idx + 2, 4, int(new_qty))
             ws.update_cell(row_idx + 2, 5, datetime.now().strftime("%Y-%m-%d %H:%M"))
         else:
-            ws.append_row([region, item_en, item_ar, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
+            # We use item_en for both English and Arabic columns in sheet to avoid errors
+            ws.append_row([region, item_en, item_en, int(new_qty), datetime.now().strftime("%Y-%m-%d %H:%M")])
         return True
     except: return False
 
 # --- Cookie Auto-Login ---
-# We check this ONLY if session state says we are not logged in.
-if not st.session_state.get('logged_in', False):
+if not st.session_state.logged_in:
     cookie_user = cookie_manager.get(cookie="wms_user_pro")
     if cookie_user:
         users = load_data('users')
@@ -293,23 +286,17 @@ else:
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
-                # Delete cookie on profile change to force re-login/sync
                 cookie_manager.delete("wms_user_pro")
                 time.sleep(1)
                 st.session_state.logged_in = False 
                 st.rerun()
             else: st.error("Error Updating")
 
-    # --- FIX FOR LOGOUT PROBLEM ---
     if st.sidebar.button(txt['logout'], use_container_width=True):
-        # 1. Delete Cookie first
         cookie_manager.delete("wms_user_pro")
-        # 2. Clear Session State
         st.session_state['logged_in'] = False
         st.session_state['user_info'] = {}
-        # 3. Wait for browser to remove cookie
         time.sleep(0.5) 
-        # 4. Rerun app
         st.rerun()
 
     # ================= 1. MANAGER VIEW =================
@@ -327,7 +314,8 @@ else:
             if wh_data.empty:
                 st.info(f"{txt['no_items']} - {warehouse_name}")
             else:
-                base_cols = ['name_ar', 'name_en', 'qty', 'unit', 'category']
+                # Removed 'name_ar' from columns
+                base_cols = ['name_en', 'qty', 'unit', 'category']
                 display_cols = [c for c in base_cols if c in wh_data.columns]
                 st.dataframe(wh_data[display_cols], use_container_width=True)
                 with st.expander(f"🛠 {txt['modify_stock']} ({warehouse_name})"):
@@ -417,7 +405,8 @@ else:
                                         local_inv_df['clean_item'] = local_inv_df['item_en'].astype(str).str.strip()
                                         m = local_inv_df[(local_inv_df['clean_reg']==str(row['region']).strip()) & (local_inv_df['clean_item']==str(row['item_en']).strip())]
                                         if not m.empty: cur = int(m.iloc[0]['qty'])
-                                    update_local_inventory_record(row['region'], row['item_en'], row['item_ar'], cur + issue_qty)
+                                    # Fix: Passed 'name_en' only
+                                    update_local_inventory_record(row['region'], row['item_en'], cur + issue_qty)
                                 except: pass 
                                 st.success("OK")
                                 time.sleep(1)
@@ -440,7 +429,7 @@ else:
                     item_data = wh_inv[wh_inv[NAME_COL] == sel_sk].iloc[0]
                     save_row('requests', [
                         str(uuid.uuid4()), info['name'], info['region'],
-                        item_data['name_ar'], item_data['name_en'], item_data['category'],
+                        item_data['name_en'], item_data['name_en'], item_data['category'], # Save EN name twice
                         qty_sk, datetime.now().strftime("%Y-%m-%d %H:%M"),
                         txt['pending'], f"Source: {wh_source}", sk_unit
                     ])
@@ -487,9 +476,10 @@ else:
                     qty = c_q.number_input(txt['qty_req'], 1, 1000, 1)
                     if st.button(txt['send_req'], use_container_width=True):
                         item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
+                        # Fix: Saving name_en only (removed name_ar reference)
                         save_row('requests', [
                             str(uuid.uuid4()), info['name'], req_area,
-                            item['name_ar'], item['name_en'], item['category'],
+                            item['name_en'], item['name_en'], item['category'],
                             qty, datetime.now().strftime("%Y-%m-%d %H:%M"),
                             txt['pending'], "", req_unit
                         ])
@@ -500,11 +490,11 @@ else:
             reqs = load_data('requests')
             if not reqs.empty:
                 my_reqs = reqs[reqs['supervisor'] == info['name']]
-                # Ensure column names exist before selecting
+                # Updated columns to show
                 cols_to_show = ['name_en', 'qty', 'status', 'region']
                 if 'unit' in my_reqs.columns: cols_to_show.insert(2, 'unit')
                 
-                # Check if 'name_en' is available in requests (it was saved as item_en)
+                # Handling old data if exists
                 if 'item_en' in my_reqs.columns:
                     my_reqs = my_reqs.rename(columns={'item_en': 'name_en'})
                 
@@ -523,8 +513,9 @@ else:
                         local_inv['clean_item'] = local_inv['item_en'].astype(str).str.strip()
                         match = local_inv[(local_inv['clean_reg'] == str(view_area).strip()) & (local_inv['clean_item'] == str(row['name_en']).strip())]
                         if not match.empty: current_qty = int(match.iloc[0]['qty'])
-                    d_name = row['name_en'] # English Name
-                    items_list.append({"disp": d_name, "name_ar": row['name_ar'], "name_en": row['name_en'], "current_qty": current_qty})
+                    d_name = row['name_en']
+                    # Removed name_ar from dictionary to fix KeyError
+                    items_list.append({"disp": d_name, "name_en": row['name_en'], "current_qty": current_qty})
                 
                 selected_item_inv = st.selectbox(txt['select_item'], [x['disp'] for x in items_list], key="sel_inv")
                 selected_data = next((item for item in items_list if item["disp"] == selected_item_inv), None)
@@ -534,7 +525,8 @@ else:
                         st.caption(f"{txt['current_local']} {selected_data['current_qty']} (in {view_area})")
                         new_val = st.number_input(txt['qty_local'], 0, 9999, selected_data['current_qty'])
                         if st.button(txt['update_btn'], use_container_width=True):
-                            update_local_inventory_record(view_area, selected_data['name_en'], selected_data['name_ar'], new_val)
+                            # Fix: Update using only name_en
+                            update_local_inventory_record(view_area, selected_data['name_en'], new_val)
                             st.success("✅")
                             time.sleep(1)
                             st.rerun()
