@@ -16,9 +16,9 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# هذا المتغير هو سر حل مشكلة تسجيل الخروج
-if 'logout_clicked' not in st.session_state:
-    st.session_state.logout_clicked = False
+# --- Prevent Auto-Login Loop on Logout ---
+if 'logout_pressed' not in st.session_state:
+    st.session_state.logout_pressed = False
 
 # --- Cookie Manager ---
 def get_manager():
@@ -30,20 +30,14 @@ cookie_manager = get_manager()
 def inject_security_css():
     st.markdown("""
         <style>
-        /* Hide Toolbar, Deploy, Manage App */
         [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
         .stDeployButton {visibility: hidden !important; display: none !important;}
         [data-testid="manage-app-button"] {visibility: hidden !important; display: none !important;}
-        
-        /* Hide Footer */
         footer {visibility: hidden !important;}
-        
-        /* Hide Top Decoration */
         [data-testid="stDecoration"] {display: none;}
         </style>
     """, unsafe_allow_html=True)
 
-# Apply Security (Hide by default, Show for 'abdulaziz')
 should_hide = True
 if st.session_state.logged_in:
     username = str(st.session_state.user_info.get('username', '')).lower()
@@ -53,7 +47,7 @@ if st.session_state.logged_in:
 if should_hide:
     inject_security_css()
 
-# --- Constants ---
+# --- Constants & Lists ---
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
 AREAS = [
@@ -64,7 +58,7 @@ AREAS = [
 ]
 NAME_COL = 'name_en'
 
-# --- English Dictionary ---
+# --- English Text Dictionary ---
 txt = {
     "app_title": "Unified WMS System",
     "login_page": "Login", "register_page": "Register",
@@ -239,7 +233,6 @@ def update_central_inventory_with_log(item_en, location, change_qty, user, actio
             try:
                 current_qty = int(str(raw_qty).replace(',', '').split('.')[0])
             except: current_qty = 0
-                
             new_qty = max(0, current_qty + int(change_qty))
             ws_inv.update_cell(idx + 2, qty_col_idx, new_qty) 
             
@@ -283,14 +276,11 @@ def update_local_inventory_record(region, item_en, new_qty):
         return True
     except: return False
 
-# --- Auto-Login Logic (Fix for Logout Bug) ---
-# We check cookies ONLY if we are logged out AND the logout button wasn't just clicked
+# --- Auto-Login Logic (Robust) ---
+# Only check cookie if user is NOT logged in AND Logout button was NOT just pressed
 if not st.session_state.logged_in:
-    # If the user just clicked logout, we skip this block to allow the browser to clear the cookie
-    if st.session_state.get('logout_clicked', False):
-        st.session_state.logout_clicked = False # Reset flag for next run
-    else:
-        # Standard auto-login check
+    if not st.session_state.logout_pressed:
+        time.sleep(0.1) # Give cookie manager a split second
         cookie_user = cookie_manager.get(cookie="wms_user_pro")
         if cookie_user:
             users = load_data('users')
@@ -301,6 +291,10 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.user_info = match.iloc[0].to_dict()
                     st.rerun()
+    else:
+        # If logout was pressed, reset the flag so next refresh (manual) can use cookies if they exist
+        # But we delete cookie on logout, so it should be fine.
+        pass
 
 # === LOGIN PAGE ===
 if not st.session_state.logged_in:
@@ -317,9 +311,14 @@ if not st.session_state.logged_in:
                     users['password'] = users['password'].astype(str)
                     match = users[(users['username']==u) & (users['password']==p)]
                     if not match.empty:
+                        # SUCCESSFUL LOGIN
                         st.session_state.logged_in = True
                         st.session_state.user_info = match.iloc[0].to_dict()
+                        # Clear the logout flag to allow auto-login next time
+                        st.session_state.logout_pressed = False 
+                        # Set new cookie
                         cookie_manager.set("wms_user_pro", u, expires_at=datetime.now() + timedelta(days=7))
+                        time.sleep(0.5)
                         st.rerun()
                     else: st.error(txt['error_login'])
                 else: st.error("DB Error")
@@ -352,24 +351,24 @@ else:
         if st.button(txt['save_changes'], use_container_width=True):
             if update_user_profile_in_db(info['username'], new_name_input, new_pass_input):
                 st.success(txt['profile_updated'])
-                # Force logout on change to refresh data
                 cookie_manager.delete("wms_user_pro")
                 st.session_state.logged_in = False
-                st.session_state.logout_clicked = True
+                st.session_state.logout_pressed = True
                 time.sleep(1)
                 st.rerun()
             else: st.error("Error Updating")
 
-    # --- LOGOUT BUTTON (FIXED) ---
+    # --- LOGOUT BUTTON (FIXED LOGIC) ---
     if st.sidebar.button(txt['logout'], use_container_width=True):
-        # 1. Delete cookie
+        # 1. Trigger Cookie Deletion
         cookie_manager.delete("wms_user_pro")
-        # 2. Clear state
+        # 2. Clear Session
         st.session_state.logged_in = False
         st.session_state.user_info = {}
-        # 3. Set flag to ignore cookies on next immediate run
-        st.session_state.logout_clicked = True
-        # 4. Rerun
+        # 3. Set Flag to Block Immediate Auto-Login on Rerun
+        st.session_state.logout_pressed = True
+        # 4. Wait for Browser to process cookie deletion
+        time.sleep(0.5) 
         st.rerun()
 
     # ================= 1. MANAGER VIEW =================
@@ -559,6 +558,7 @@ else:
                     qty = c_q.number_input(txt['qty_req'], 1, 1000, 1)
                     if st.button(txt['send_req'], use_container_width=True):
                         item = ntcc_items[ntcc_items[NAME_COL] == sel].iloc[0]
+                        # Safe Save: English name only
                         save_row('requests', [
                             str(uuid.uuid4()), info['name'], req_area,
                             item['name_en'], item['category'],
