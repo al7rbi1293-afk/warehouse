@@ -23,7 +23,7 @@ AREAS = [
     "Ward 30-31", "Ward 40-41", "Ward50-51"
 ]
 
-# --- Dictionary ---
+# --- Dictionary (FIXED MISSING KEYS) ---
 txt = {
     "app_title": "Unified WMS System",
     "login_page": "Login", "register_page": "Register",
@@ -49,7 +49,13 @@ txt = {
     "qty_req": "Request Qty", "send_req": "Send Request",
     "approved_reqs": "📦 Requests to Issue", "issue": "Confirm Issue 📦",
     "transfer_btn": "Transfer Stock",
-    "manager_role": "Manager", "storekeeper_role": "Store Keeper"
+    "manager_role": "Manager", "storekeeper_role": "Store Keeper",
+    # --- MISSING KEYS ADDED HERE ---
+    "edit_profile": "Edit Profile", 
+    "new_name": "New Name", 
+    "new_pass": "New Password", 
+    "save_changes": "Save Changes",
+    "update_btn": "Save"
 }
 
 # --- Database Connection ---
@@ -196,6 +202,7 @@ def delete_request(req_id):
 # =========== APP ENTRY POINT ==============
 # ==========================================
 
+# 2. LOGIN SCREEN (IF NOT LOGGED IN, SHOW THIS AND STOP)
 if not st.session_state.logged_in:
     login_holder = st.empty()
     with login_holder.container():
@@ -208,6 +215,7 @@ if not st.session_state.logged_in:
                 if st.form_submit_button(txt['login_btn'], use_container_width=True):
                     user_data = login_user(u, p)
                     if user_data:
+                        # Clear UI first to avoid ghosting
                         login_holder.empty()
                         st.session_state.logged_in = True
                         st.session_state.user_info = user_data
@@ -223,6 +231,7 @@ if not st.session_state.logged_in:
                 if st.form_submit_button(txt['register_btn'], use_container_width=True):
                     if register_user(nu, np, nn, nr): st.success(txt['success_reg'])
                     else: st.error("Error: Username might exist")
+    
     st.stop() # CRITICAL: Stop here if not logged in
 
 # === MAIN APP (LOGGED IN) ===
