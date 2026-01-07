@@ -70,6 +70,7 @@ def run_action(query, params=None):
     except Exception as e: st.error(f"DB Write Error: {e}"); return False
 
 def run_batch_actions(actions_list):
+    """Executes multiple queries in ONE transaction for High Performance."""
     if not actions_list: return True
     try:
         with conn.session as session:
@@ -104,6 +105,7 @@ def update_central_stock(item, loc, chg, user, desc, unit):
     df = run_query("SELECT qty FROM inventory WHERE name_en = :n AND location = :l", {"n": item, "l": loc})
     if df.empty: return False, "Item Not Found"
     cur_q = int(df.iloc[0]['qty'])
+    # Validation logic
     if chg < 0 and abs(chg) > cur_q: return False, f"Insufficient stock! Avail: {cur_q}"
     
     ops = [
@@ -127,7 +129,7 @@ def create_request(supervisor, region, item, category, qty, unit):
     return run_action("INSERT INTO requests (supervisor_name, region, item_name, category, qty, unit, status, request_date) VALUES (:s, :r, :i, :c, :q, :u, 'Pending', NOW())",
                       {"s": supervisor, "r": region, "i": item, "c": category, "q": int(qty), "u": unit})
 
-# --- Helper: Render Stock Take ---
+# --- Helper: Render Bulk Stock Take (Optimized) ---
 def render_stock_take(loc, user, key):
     inv = get_inventory(loc)
     if inv.empty: st.warning(f"No Items in {loc}"); return
@@ -369,7 +371,6 @@ def supervisor_view():
                         for _, row in edited.iterrows():
                             if row['Confirm']:
                                 batch_ops.append({"query": "UPDATE requests SET status='Received' WHERE req_id=:id", "params": {"id": row['req_id']}})
-                                cur_qty = get_local_qty(user['region'], row['item_name'])
                                 chk = run_query("SELECT id FROM local_inventory WHERE region=:r AND item_name=:i AND updated_by=:u", {"r": user['region'], "i": row['item_name'], "u": user['name']})
                                 if chk.empty:
                                     batch_ops.append({"query": "INSERT INTO local_inventory (region, item_name, qty, last_updated, updated_by) VALUES (:r, :i, :q, NOW(), :u)", "params": {"r": user['region'], "i": row['item_name'], "q": int(row['qty']), "u": user['name']}})
@@ -431,9 +432,8 @@ def supervisor_view():
                         if run_batch_actions(batch_ops): st.success(f"Stock updated for {area}"); time.sleep(1); st.rerun()
                     else: st.info("No changes")
 
-# ================= 8. MAIN ENTRY =================
-
-def show_login():
+# --- 8. UI Wrappers (Defined Globally) ---
+def show_login_ui():
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         st.markdown(f"## {txt['app_title']}")
@@ -454,10 +454,13 @@ def show_login():
                 nu = st.text_input(txt['username'])
                 np = st.text_input(txt['password'], type='password')
                 nn = st.text_input(txt['fullname'])
-                nr = st.selectbox(txt['region'], CONST["AREAS"]) # استخدام CONST["AREAS"] بدلاً من AREAS
+                nr = st.selectbox(txt['region'], CONST["AREAS"])
                 if st.form_submit_button(txt['register_btn'], use_container_width=True):
                     if register_user(nu.strip(), np.strip(), nn, nr): st.success(txt['success_reg'])
                     else: st.error("Error: Username might exist")
+
+def show_app_ui():
+    show_main_app()
 
 def show_main_app():
     info = st.session_state.user_info
@@ -491,6 +494,6 @@ def show_main_app():
 # --- Execution ---
 if __name__ == "__main__":
     if st.session_state.logged_in:
-        show_main_app()
+        show_app_ui()
     else:
-        show_login()
+        show_login_ui()
