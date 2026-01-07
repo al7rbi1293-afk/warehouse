@@ -12,7 +12,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- 3. الثوابت (Cached for Performance) ---
+# --- 3. الثوابت (Cached) ---
 @st.cache_data
 def get_constants():
     return {
@@ -70,7 +70,6 @@ def run_action(query, params=None):
     except Exception as e: st.error(f"DB Write Error: {e}"); return False
 
 def run_batch_actions(actions_list):
-    """Executes multiple queries in ONE transaction."""
     if not actions_list: return True
     try:
         with conn.session as session:
@@ -105,7 +104,6 @@ def update_central_stock(item, loc, chg, user, desc, unit):
     df = run_query("SELECT qty FROM inventory WHERE name_en = :n AND location = :l", {"n": item, "l": loc})
     if df.empty: return False, "Item Not Found"
     cur_q = int(df.iloc[0]['qty'])
-    # Validation logic (prevent negative stock if lending)
     if chg < 0 and abs(chg) > cur_q: return False, f"Insufficient stock! Avail: {cur_q}"
     
     ops = [
@@ -129,7 +127,7 @@ def create_request(supervisor, region, item, category, qty, unit):
     return run_action("INSERT INTO requests (supervisor_name, region, item_name, category, qty, unit, status, request_date) VALUES (:s, :r, :i, :c, :q, :u, 'Pending', NOW())",
                       {"s": supervisor, "r": region, "i": item, "c": category, "q": int(qty), "u": unit})
 
-# --- Helper: Render Bulk Stock Take (Optimized) ---
+# --- Helper: Render Stock Take ---
 def render_stock_take(loc, user, key):
     inv = get_inventory(loc)
     if inv.empty: st.warning(f"No Items in {loc}"); return
@@ -162,7 +160,7 @@ def render_stock_take(loc, user, key):
             if run_batch_actions(batch_ops): st.success(f"Updated {count} items!"); time.sleep(1); st.rerun()
         else: st.info("No changes")
 
-# ================= VIEWS (DEFINED BEFORE USE) =================
+# ================= 7. VIEWS (Sub-functions) =================
 
 def manager_view():
     st.subheader(f"🚀 Manager Dashboard")
@@ -433,8 +431,9 @@ def supervisor_view():
                         if run_batch_actions(batch_ops): st.success(f"Stock updated for {area}"); time.sleep(1); st.rerun()
                     else: st.info("No changes")
 
-# --- 8. UI Wrappers (Defined Globally) ---
-def show_login_ui():
+# ================= 8. MAIN ENTRY =================
+
+def show_login():
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         st.markdown(f"## {txt['app_title']}")
@@ -455,17 +454,43 @@ def show_login_ui():
                 nu = st.text_input(txt['username'])
                 np = st.text_input(txt['password'], type='password')
                 nn = st.text_input(txt['fullname'])
-                nr = st.selectbox(txt['region'], CONST["AREAS"])
+                nr = st.selectbox(txt['region'], CONST["AREAS"]) # استخدام CONST["AREAS"] بدلاً من AREAS
                 if st.form_submit_button(txt['register_btn'], use_container_width=True):
                     if register_user(nu.strip(), np.strip(), nn, nr): st.success(txt['success_reg'])
                     else: st.error("Error: Username might exist")
 
-def show_app_ui():
-    show_main_app()
+def show_main_app():
+    info = st.session_state.user_info
+    
+    st.sidebar.title(f"👤 {info['name']}")
+    st.sidebar.caption(f"📍 {info['region']} | 🔑 {info['role']}")
+    
+    if st.sidebar.button(txt['refresh_data'], use_container_width=True): st.rerun()
+    
+    with st.sidebar.expander(f"🛠 {txt['edit_profile']}"):
+        new_u = st.text_input(txt['username'], value=info['username'])
+        new_n = st.text_input(txt['new_name'], value=info['name'])
+        new_p = st.text_input(txt['new_pass'], type="password", value=info['password'])
+        if st.button(txt['save_changes'], use_container_width=True):
+            res, msg = update_user_profile_full(info['username'], new_u, new_n, new_p)
+            if res:
+                st.success(msg)
+                st.session_state.logged_in = False
+                st.rerun()
+            else: st.error(msg)
 
-# --- Main Execution ---
+    if st.sidebar.button(txt['logout'], use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.user_info = {}
+        st.rerun()
+
+    if info['role'] == 'manager': manager_view()
+    elif info['role'] == 'storekeeper': storekeeper_view()
+    else: supervisor_view()
+
+# --- Execution ---
 if __name__ == "__main__":
     if st.session_state.logged_in:
-        show_app_ui()
+        show_main_app()
     else:
-        show_login_ui()
+        show_login()
