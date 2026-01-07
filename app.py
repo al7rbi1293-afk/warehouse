@@ -117,6 +117,10 @@ def receive_from_cww(item_name, dest_loc, qty, user, unit):
 
 def update_local_inventory(region, item_name, new_qty, user):
     new_qty = int(new_qty)
+    # Check if record exists for this item in this region (Simple Schema)
+    # NOTE: If multiple users share a region, this logic overwrites. 
+    # To fully isolate DB rows, schema would need 'user' column in PK. 
+    # Current logic relies on View Filtering for privacy.
     df = run_query("SELECT id FROM local_inventory WHERE region = :r AND item_name = :i", params={"r": region, "i": item_name})
     if not df.empty:
         return run_action("UPDATE local_inventory SET qty = :q, last_updated = NOW(), updated_by = :u WHERE region = :r AND item_name = :i", 
@@ -563,13 +567,16 @@ def supervisor_view():
         st_tabs = st.tabs(AREAS)
         for i, area in enumerate(AREAS):
             with st_tabs[i]:
-                # 1. Fetch current inventory for this area
-                local_inv = run_query("SELECT item_name, qty FROM local_inventory WHERE region=:r", {"r":area})
+                # === PRIVACY FIX: Filter by updated_by ===
+                # This ensures Sarah doesn't see Rania's numbers, only her own.
+                local_inv = run_query("SELECT item_name, qty FROM local_inventory WHERE region=:r AND updated_by=:u", {"r":area, "u":user['name']})
                 
                 # 2. Merge with Master list to show all possible items (Optional but good for stock take)
                 # For simplicity and speed, we show existing items in local inventory first.
                 if local_inv.empty:
-                    st.warning(f"No inventory record found for {area}.")
+                    st.warning(f"No inventory record found for {area} under your name.")
+                    # Optional: We can show Master List (0s) here if we want them to start from scratch.
+                    # For now, showing warning is cleaner as per strict isolation request.
                 else:
                     local_inv_df = local_inv.copy()
                     local_inv_df.rename(columns={'qty': 'System Count', 'item_name': 'Item Name'}, inplace=True)
