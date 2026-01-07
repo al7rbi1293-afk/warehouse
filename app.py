@@ -12,7 +12,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_info = {}
 
-# --- 3. الثوابت (Cached) ---
+# --- 3. الثوابت (Cached for Performance) ---
 @st.cache_data
 def get_constants():
     return {
@@ -433,9 +433,8 @@ def supervisor_view():
                         if run_batch_actions(batch_ops): st.success(f"Stock updated for {area}"); time.sleep(1); st.rerun()
                     else: st.info("No changes")
 
-# --- 8. UI Wrappers & Main ---
-
-def show_login():
+# --- 8. UI Wrappers (Defined Globally) ---
+def show_login_ui():
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         st.markdown(f"## {txt['app_title']}")
@@ -456,13 +455,17 @@ def show_login():
                 nu = st.text_input(txt['username'])
                 np = st.text_input(txt['password'], type='password')
                 nn = st.text_input(txt['fullname'])
-                nr = st.selectbox(txt['region'], AREAS)
+                nr = st.selectbox(txt['region'], CONST["AREAS"])
                 if st.form_submit_button(txt['register_btn'], use_container_width=True):
                     if register_user(nu.strip(), np.strip(), nn, nr): st.success(txt['success_reg'])
                     else: st.error("Error: Username might exist")
 
+def show_app_ui():
+    show_main_app()
+
+# --- Main Execution ---
 if __name__ == "__main__":
     if st.session_state.logged_in:
-        show_main_app()
+        show_app_ui()
     else:
-        show_login()
+        show_login_ui()
