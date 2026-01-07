@@ -300,7 +300,6 @@ def manager_view():
             
             for i, region in enumerate(regions):
                 with region_tabs[i]:
-                    # Filter data for this region
                     reg_df = reqs[reqs['region'] == region].copy()
                     
                     # Add Action Column for Editor
@@ -339,7 +338,6 @@ def manager_view():
                             new_q = int(row['Mgr Qty'])
                             new_n = row['Mgr Note']
                             
-                            # Fetch current stock to check
                             if action == "Approve":
                                 stock = run_query("SELECT qty FROM inventory WHERE name_en=:n AND location='NTCC'", {"n":row['item_name']})
                                 avail = stock.iloc[0]['qty'] if not stock.empty else 0
@@ -455,7 +453,7 @@ def supervisor_view():
     st.header(txt['supervisor_role'])
     t1, t2, t3, t4 = st.tabs([txt['req_form'], "🚚 Ready for Pickup", "⏳ My Pending", txt['local_inv']])
     
-    # Tab 1: BULK REQUEST FORM (New)
+    # Tab 1: BULK REQUEST FORM (MODIFIED: NO STOCK COLUMN)
     with t1:
         st.markdown("### 🛒 Bulk Order Form")
         reg = st.selectbox("Ordering for Area:", AREAS, index=AREAS.index(user['region']) if user['region'] in AREAS else 0)
@@ -464,21 +462,21 @@ def supervisor_view():
         inv = get_inventory("NTCC")
         
         if not inv.empty:
-            # 2. Add 'Order Qty' column
-            inv_df = inv[['name_en', 'category', 'qty', 'unit']].copy()
-            inv_df.rename(columns={'qty': 'Stock Available', 'name_en': 'Item Name'}, inplace=True)
+            # 2. Add 'Order Qty' column and HIDE 'qty' (Stock Available)
+            # We select specific columns, purposely omitting 'qty'
+            inv_df = inv[['name_en', 'category', 'unit']].copy() 
+            inv_df.rename(columns={'name_en': 'Item Name'}, inplace=True)
             inv_df['Order Qty'] = 0  # Default 0
             
             st.info("Enter quantities in 'Order Qty' column. Leave 0 for items you don't need.")
             
-            # 3. Display Data Editor
+            # 3. Display Data Editor (Without Stock Info)
             edited_order = st.data_editor(
                 inv_df,
                 key="order_editor",
                 column_config={
                     "Item Name": st.column_config.TextColumn(disabled=True),
                     "category": st.column_config.TextColumn(disabled=True),
-                    "Stock Available": st.column_config.NumberColumn(disabled=True),
                     "unit": st.column_config.TextColumn(disabled=True),
                     "Order Qty": st.column_config.NumberColumn(min_value=0, max_value=1000, step=1)
                 },
