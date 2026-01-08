@@ -113,6 +113,19 @@ def run_action(query, params=None):
         return True
     except Exception as e: st.error(f"DB Action Error: {e}"); return False
 
+def run_batch_action(actions):
+    """
+    Executes a list of (query, params) tuples in a single transaction.
+    actions: list of (query_string, params_dict)
+    """
+    try:
+        with conn.session as session:
+            for q, p in actions:
+                session.execute(text(q), p)
+            session.commit()
+            return True
+    except Exception as e: st.error(f"Batch DB Error: {e}"); return False
+
 # --- 6. المنطق (Logic) ---
 def login_user(username, password):
     # Fetch user + shift name
@@ -597,14 +610,17 @@ def supervisor_view_manpower():
             )
             
             if st.button("💾 Submit Attendance"):
-                count = 0
+                batch_cmds = []
                 for i, row in edited_att.iterrows():
-                    run_action("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
-                               {"wid": row['ID'], "d": today, "sid": selected_shift_id})
-                    run_action("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
-                               {"wid": row['ID'], "d": today, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']})
-                    count += 1
-                st.success(f"Attendance recorded for {count} workers!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    # 1. Delete Existing
+                    batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
+                                       {"wid": row['ID'], "d": today, "sid": selected_shift_id}))
+                    # 2. Insert New
+                    batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
+                                       {"wid": row['ID'], "d": today, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+                
+                if run_batch_action(batch_cmds):
+                    st.success(f"Attendance recorded for {len(edited_att)} workers!"); st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with tab2:
         st.dataframe(run_query("SELECT * FROM workers WHERE region = :r", {"r": selected_region_mp}), width="stretch")
@@ -844,11 +860,15 @@ def supervisor_view_warehouse():
                 items_to_order = edited_order[edited_order['Order Qty'] > 0]
                 if items_to_order.empty: st.warning("Please enter quantity for at least one item.")
                 else:
-                    success_count = 0
+                    batch_cmds = []
                     for index, row in items_to_order.iterrows():
-                        create_request(supervisor=user['name'], region=selected_region_wh, item=row['Item Name'], category=row['category'], qty=int(row['Order Qty']), unit=row['unit'])
-                        success_count += 1
-                    st.balloons(); st.success(f"Sent {success_count} requests for {selected_region_wh}!"); st.cache_data.clear(); time.sleep(2); st.rerun()
+                        batch_cmds.append((
+                            "INSERT INTO requests (supervisor_name, region, item_name, category, qty, unit, status, request_date) VALUES (:s, :r, :i, :c, :q, :u, 'Pending', NOW())",
+                            {"s": user['name'], "r": selected_region_wh, "i": row['Item Name'], "c": row['category'], "q": int(row['Order Qty']), "u": row['unit']}
+                        ))
+                    
+                    if run_batch_action(batch_cmds):
+                        st.balloons(); st.success(f"Sent {len(items_to_order)} requests for {selected_region_wh}!"); st.cache_data.clear(); time.sleep(2); st.rerun()
 
     with t2: # Ready for Pickup
         # Filter by region as well
