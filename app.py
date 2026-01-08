@@ -52,21 +52,20 @@ except:
     st.stop()
 
 # --- 5. دوال قاعدة البيانات ---
-def run_query(query, params=None):
-    try: return conn.query(query, params=params)
+def run_query(query, params=None, ttl=None):
+    try: return conn.query(query, params=params, ttl=ttl)
     except Exception as e: st.error(f"DB Error: {e}"); return pd.DataFrame()
 
 def run_action(query, params=None):
     try:
         with conn.session as session:
             session.execute(text(query), params); session.commit()
-        st.cache_data.clear()
         return True
     except Exception as e: st.error(f"DB Action Error: {e}"); return False
 
 # --- 6. المنطق (Logic) ---
 def login_user(username, password):
-    df = run_query("SELECT * FROM users WHERE username = :u AND password = :p", params={"u": username, "p": password})
+    df = run_query("SELECT * FROM users WHERE username = :u AND password = :p", params={"u": username, "p": password}, ttl=0)
     return df.iloc[0].to_dict() if not df.empty else None
 
 def register_user(username, password, name, region):
@@ -75,7 +74,7 @@ def register_user(username, password, name, region):
 
 def update_user_profile_full(old_username, new_username, new_name, new_pass):
     if new_username != old_username:
-        if not run_query("SELECT username FROM users WHERE username = :u", params={"u": new_username}).empty:
+        if not run_query("SELECT username FROM users WHERE username = :u", params={"u": new_username}, ttl=0).empty:
             return False, "Username taken!"
     return run_action("UPDATE users SET username = :nu, name = :nn, password = :np WHERE username = :ou",
                       {"nu": new_username, "nn": new_name, "np": new_pass, "ou": old_username}), "Updated"
@@ -85,7 +84,7 @@ def get_inventory(location):
 
 def update_central_stock(item_name, location, change, user, action_desc, unit):
     change = int(change)
-    df = run_query("SELECT qty FROM inventory WHERE name_en = :name AND location = :loc", params={"name": item_name, "loc": location})
+    df = run_query("SELECT qty FROM inventory WHERE name_en = :name AND location = :loc", params={"name": item_name, "loc": location}, ttl=0)
     if df.empty: return False, "Item not found"
     current_qty = int(df.iloc[0]['qty'])
     new_qty = current_qty + change
@@ -95,7 +94,6 @@ def update_central_stock(item_name, location, change, user, action_desc, unit):
             s.execute(text("INSERT INTO stock_logs (log_date, user_name, action_type, item_name, location, change_amount, new_qty) VALUES (NOW(), :u, :act, :item, :loc, :chg, :nq)"),
                       {"u": user, "act": f"{action_desc} ({unit})", "item": item_name, "loc": location, "chg": change, "nq": new_qty})
             s.commit()
-        st.cache_data.clear()
         return True, "Success"
     except Exception as e: return False, str(e)
 
@@ -103,7 +101,7 @@ def transfer_stock(item_name, qty, user, unit):
     qty = int(qty)
     ok, msg = update_central_stock(item_name, "SNC", -qty, user, "Transfer Out", unit)
     if not ok: return False, msg
-    df = run_query("SELECT * FROM inventory WHERE name_en = :n AND location = 'NTCC'", params={"n": item_name})
+    df = run_query("SELECT * FROM inventory WHERE name_en = :n AND location = 'NTCC'", params={"n": item_name}, ttl=0)
     if df.empty: run_action("INSERT INTO inventory (name_en, category, unit, qty, location) VALUES (:n, 'Transferred', :u, 0, 'NTCC')", params={"n": item_name, "u": unit})
     ok2, msg2 = update_central_stock(item_name, "NTCC", qty, user, "Transfer In", unit)
     if not ok2: return False, msg2
@@ -120,7 +118,7 @@ def receive_from_cww(item_name, dest_loc, qty, user, unit):
 def update_local_inventory(region, item_name, new_qty, user):
     new_qty = int(new_qty)
     # Check if record exists for this item in this region
-    df = run_query("SELECT id FROM local_inventory WHERE region = :r AND item_name = :i", params={"r": region, "i": item_name})
+    df = run_query("SELECT id FROM local_inventory WHERE region = :r AND item_name = :i", params={"r": region, "i": item_name}, ttl=0)
     if not df.empty:
         return run_action("UPDATE local_inventory SET qty = :q, last_updated = NOW(), updated_by = :u WHERE region = :r AND item_name = :i", 
                           params={"q": new_qty, "u": user, "r": region, "i": item_name})
@@ -157,7 +155,7 @@ def delete_request(req_id):
     return run_action("DELETE FROM requests WHERE req_id = :id", params={"id": req_id})
 
 def get_local_inventory_by_item(region, item_name):
-    df = run_query("SELECT qty FROM local_inventory WHERE region = :r AND item_name = :i", params={"r": region, "i": item_name})
+    df = run_query("SELECT qty FROM local_inventory WHERE region = :r AND item_name = :i", params={"r": region, "i": item_name}, ttl=0)
     return int(df.iloc[0]['qty']) if not df.empty else 0
 
 # --- Helper for Bulk Stock Take ---
@@ -199,7 +197,7 @@ def render_bulk_stock_take(location, user_name, key_prefix):
                 changes_count += 1
         
         if changes_count > 0:
-            st.success(f"Updated {changes_count} items in {location}!"); time.sleep(1); st.rerun()
+            st.success(f"Updated {changes_count} items in {location}!"); st.cache_data.clear(); time.sleep(1); st.rerun()
         else:
             st.info("No changes detected.")
 
@@ -226,7 +224,8 @@ def show_login():
             nn = st.text_input(txt['fullname'])
             nr = st.selectbox(txt['region'], AREAS)
             if st.form_submit_button(txt['register_btn'], use_container_width=True):
-                if register_user(nu.strip(), np.strip(), nn, nr): st.success(txt['success_reg'])
+                if register_user(nu.strip(), np.strip(), nn, nr): 
+                    st.success(txt['success_reg']); st.cache_data.clear()
                 else: st.error("Error: Username might exist")
 
 def show_main_app():
@@ -248,6 +247,7 @@ def show_main_app():
             if res:
                 st.success(msg)
                 st.session_state.logged_in = False
+                st.cache_data.clear()
                 st.rerun()
             else: st.error(msg)
 
@@ -276,10 +276,10 @@ def manager_view():
             q = c4.number_input("Qty", 0, 10000)
             u = st.selectbox("Unit", ["Piece", "Carton", "Set"])
             if st.button(txt['create_btn'], use_container_width=True):
-                if n and run_query("SELECT id FROM inventory WHERE name_en=:n AND location=:l", {"n":n, "l":l}).empty:
+                if n and run_query("SELECT id FROM inventory WHERE name_en=:n AND location=:l", {"n":n, "l":l}, ttl=0).empty:
                     run_action("INSERT INTO inventory (name_en, category, unit, location, qty, status) VALUES (:n, :c, :u, :l, :q, 'Available')",
                               {"n":n, "c":c, "u":u, "l":l, "q":int(q)})
-                    st.success("Added"); st.rerun()
+                    st.success("Added"); st.cache_data.clear(); st.rerun()
                 else: st.error("Exists")
         st.divider()
         col_ntcc, col_snc = st.columns(2)
@@ -304,7 +304,7 @@ def manager_view():
                         change = -int(amt) if "Lend" in op else int(amt)
                         desc = f"Lend to {proj}" if "Lend" in op else f"Borrow from {proj}"
                         res, msg = update_central_stock(it, wh, change, st.session_state.user_info['name'], desc, row['unit'])
-                        if res: st.success("Transaction Successful!"); st.rerun()
+                        if res: st.success("Transaction Successful!"); st.cache_data.clear(); st.rerun()
                         else: st.error(msg)
         with c2:
             st.subheader(txt['cww_supply'])
@@ -317,7 +317,7 @@ def manager_view():
                     amt = st.number_input("Quantity", 1, 10000, key="c_q")
                     if st.button("Receive from CWW", use_container_width=True, key="btn_c"):
                         res, msg = update_central_stock(it, dest, amt, st.session_state.user_info['name'], "From CWW", row['unit'])
-                        if res: st.success("Done"); st.rerun()
+                        if res: st.success("Done"); st.cache_data.clear(); st.rerun()
                         else: st.error(msg)
         st.divider()
         loan_logs = run_query("SELECT log_date, item_name, change_amount, location, action_type FROM stock_logs WHERE action_type LIKE '%Lend%' OR action_type LIKE '%Borrow%' ORDER BY log_date DESC")
@@ -364,7 +364,7 @@ def manager_view():
                             new_q = int(row['Mgr Qty'])
                             new_n = row['Mgr Note']
                             if action == "Approve":
-                                stock = run_query("SELECT qty FROM inventory WHERE name_en=:n AND location='NTCC'", {"n":row['item_name']})
+                                stock = run_query("SELECT qty FROM inventory WHERE name_en=:n AND location='NTCC'", {"n":row['item_name']}, ttl=0)
                                 avail = stock.iloc[0]['qty'] if not stock.empty else 0
                                 if avail >= new_q:
                                     final_note = f"Manager: {new_n}" if new_n else ""
@@ -374,7 +374,7 @@ def manager_view():
                             elif action == "Reject":
                                 run_action("UPDATE requests SET status='Rejected', notes=:n WHERE req_id=:id", {"n":new_n, "id":rid})
                                 count_changes += 1
-                        if count_changes > 0: st.success(f"Processed {count_changes} requests!"); time.sleep(1); st.rerun()
+                        if count_changes > 0: st.success(f"Processed {count_changes} requests!"); st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with tab4: # Local Inventory (TABS ADDED)
         st.subheader("📊 Branch Inventory (By Area)")
@@ -441,7 +441,7 @@ def storekeeper_view():
                                         run_action("UPDATE requests SET status='Issued', qty=:q, notes=:n WHERE req_id=:id", {"q":iq, "n":final_note, "id":rid})
                                         issued_count += 1
                                     else: st.toast(f"Error {row['item_name']}: {msg}", icon="❌")
-                            if issued_count > 0: st.success(f"Issued {issued_count} items!"); time.sleep(1); st.rerun()
+                            if issued_count > 0: st.success(f"Issued {issued_count} items!"); st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with t2: # Issued Today
         st.subheader("📋 Items Issued Today")
@@ -487,7 +487,7 @@ def supervisor_view():
                     for index, row in items_to_order.iterrows():
                         create_request(supervisor=user['name'], region=reg, item=row['Item Name'], category=row['category'], qty=int(row['Order Qty']), unit=row['unit'])
                         success_count += 1
-                    st.balloons(); st.success(f"Sent {success_count} requests!"); time.sleep(2); st.rerun()
+                    st.balloons(); st.success(f"Sent {success_count} requests!"); st.cache_data.clear(); time.sleep(2); st.rerun()
 
     with t2: # Ready for Pickup (TABS ADDED)
         ready = run_query("SELECT * FROM requests WHERE supervisor_name=:s AND status='Issued'", {"s": user['name']})
@@ -526,7 +526,7 @@ def supervisor_view():
                                     new_total_qty = current_local_qty + int(row['qty'])
                                     update_local_inventory(reg, row['item_name'], new_total_qty, user['name'])
                                     rec_count += 1
-                            if rec_count > 0: st.balloons(); st.success(f"Received {rec_count} items. Inventory Updated."); time.sleep(1); st.rerun()
+                            if rec_count > 0: st.balloons(); st.success(f"Received {rec_count} items. Inventory Updated."); st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with t3: # Edit Pending
         pending = run_query("SELECT req_id, item_name, qty, unit, request_date FROM requests WHERE supervisor_name=:s AND status='Pending' ORDER BY request_date DESC", {"s": user['name']})
@@ -559,7 +559,7 @@ def supervisor_view():
                     elif row['Action'] == "Cancel":
                         delete_request(rid)
                         p_changes += 1
-                if p_changes > 0: st.success(f"Applied changes."); time.sleep(1); st.rerun()
+                if p_changes > 0: st.success(f"Applied changes."); st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with t4: # Local Inventory (Full Grid Stock Take with Tabs)
         st.info("Update Local Inventory (Weekly Stock Take)")
@@ -599,7 +599,7 @@ def supervisor_view():
                             if sys != phy:
                                 update_local_inventory(area, row['Item Name'], phy, user['name'])
                                 up_count += 1
-                        if up_count > 0: st.success(f"Updated {up_count} items in {area}."); time.sleep(1); st.rerun()
+                        if up_count > 0: st.success(f"Updated {up_count} items in {area}."); st.cache_data.clear(); time.sleep(1); st.rerun()
                         else: st.info("No changes made.")
 
 # --- 8. تشغيل التطبيق ---
