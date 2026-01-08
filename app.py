@@ -4,8 +4,49 @@ from datetime import datetime
 from sqlalchemy import text
 import time
 
-# --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="NSTC Management", layout="wide", initial_sidebar_state="expanded") # Rebranded
+# --- 1. إعداد الصفحة وتززينها ---
+st.set_page_config(page_title="NSTC Management", layout="wide", initial_sidebar_state="expanded", page_icon="🏗️")
+
+def setup_styles():
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+        html, body, [class*="css"] {
+            font-family: 'Cairo', sans-serif;
+        }
+        /* Button Styling */
+        div.stButton > button {
+            background-color: #2e86de;
+            color: white;
+            border-radius: 8px;
+            border: none;
+            padding: 0.5rem 1rem;
+            transition: all 0.3s ease;
+        }
+        div.stButton > button:hover {
+            background-color: #54a0ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        /* Header Styling */
+        h1, h2, h3 {
+            color: #222f3e;
+            font-weight: 700;
+        }
+        /* Card-like Look for Expanders/Containers */
+        .stExpander {
+            border: 1px solid #c8d6e5;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        /* Success/Error/Info Messages */
+        .stAlert {
+            border-radius: 8px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+setup_styles()
 
 # --- 2. إدارة الجلسة ---
 if 'logged_in' not in st.session_state:
@@ -15,6 +56,7 @@ if 'active_module' not in st.session_state:
     st.session_state.active_module = "Warehouse" # Default module
 
 # --- 3. الثوابت ---
+# Optimization: Cache these constants effectively
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
 LOCATIONS = ["NTCC", "SNC"]
 EXTERNAL_PROJECTS = ["KASCH", "KAMC", "KSSH Altaif"]
@@ -102,16 +144,26 @@ def init_db():
     # Removed auto-insert of "B B1" per user request.
 
 # --- 5. دوال قاعدة البيانات ---
+# Updated: Default TTL is now None (standard caching), use 0 explicitly for real-time needs.
 def run_query(query, params=None, ttl=None):
-    try: return conn.query(query, params=params, ttl=ttl)
-    except Exception as e: st.error(f"DB Error: {e}"); return pd.DataFrame()
+    try: 
+        # Caching strategy: if ttl is NOT provided, it might default to strict cache.
+        # We explicitly map None -> default streamlist cache behavior for static data
+        return conn.query(query, params=params, ttl=ttl)
+    except Exception as e: 
+        st.error(f"DB Error: {e}")
+        return pd.DataFrame()
 
 def run_action(query, params=None):
     try:
         with conn.session as session:
-            session.execute(text(query), params); session.commit()
+            session.execute(text(query), params)
+            session.commit()
         return True
-    except Exception as e: st.error(f"DB Action Error: {e}"); return False
+    except Exception as e: 
+        st.error(f"DB Action Error: {e}")
+        return False
+
 
 def run_batch_action(actions):
     """
@@ -119,16 +171,18 @@ def run_batch_action(actions):
     actions: list of (query_string, params_dict)
     """
     try:
-        with conn.session as session:
-            for q, p in actions:
-                session.execute(text(q), p)
-            session.commit()
+        with st.spinner("Processing..."):
+            with conn.session as session:
+                for q, p in actions:
+                    session.execute(text(q), p)
+                session.commit()
             return True
     except Exception as e: st.error(f"Batch DB Error: {e}"); return False
 
 # --- 6. المنطق (Logic) ---
 def login_user(username, password):
     # Fetch user + shift name
+    # Cache optimization: LOGIN should be real-time (ttl=0) to ensure security and immediate update
     query = """
         SELECT u.*, s.name as shift_name 
         FROM users u 
@@ -139,8 +193,9 @@ def login_user(username, password):
     return df.iloc[0].to_dict() if not df.empty else None
 
 def register_user(username, password, name, region):
-    return run_action("INSERT INTO users (username, password, name, role, region) VALUES (:u, :p, :n, 'supervisor', :r)",
-                      params={"u": username, "p": password, "n": name, "r": region})
+    with st.spinner("Creating account..."):
+        return run_action("INSERT INTO users (username, password, name, role, region) VALUES (:u, :p, :n, 'supervisor', :r)",
+                          params={"u": username, "p": password, "n": name, "r": region})
 
 def update_user_profile_full(old_username, new_username, new_name, new_pass):
     if new_username != old_username:
@@ -150,7 +205,8 @@ def update_user_profile_full(old_username, new_username, new_name, new_pass):
                       {"nu": new_username, "nn": new_name, "np": new_pass, "ou": old_username}), "Updated"
 
 def get_inventory(location):
-    return run_query("SELECT * FROM inventory WHERE location = :loc ORDER BY name_en", params={"loc": location})
+    # Optimization: Cache inventory for short duration (10s) to balance freshness and speed
+    return run_query("SELECT * FROM inventory WHERE location = :loc ORDER BY name_en", params={"loc": location}, ttl=10)
 
 def update_central_stock(item_name, location, change, user, action_desc, unit):
     change = int(change)
@@ -267,7 +323,8 @@ def render_bulk_stock_take(location, user_name, key_prefix):
                 changes_count += 1
         
         if changes_count > 0:
-            st.success(f"Updated {changes_count} items in {location}!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+            st.toast(f"✅ Updated {changes_count} items in {location}!")
+            st.cache_data.clear(); time.sleep(1); st.rerun()
         else:
             st.info("No changes detected.")
 
@@ -401,7 +458,8 @@ def manager_view_manpower():
 
     with tab2: # Worker Database
         st.subheader("Manage Workers")
-        workers = run_query("SELECT * FROM workers ORDER BY id DESC")
+        # Optimization: Cache worker list for 10 seconds to avoid reload flicker but keep fresh enough
+        workers = run_query("SELECT * FROM workers ORDER BY id DESC", ttl=10)
         
         # Add Worker
         with st.expander("➕ Add New Worker", expanded=True):
@@ -413,8 +471,8 @@ def manager_view_manpower():
                 wr = c3.text_input("Role/Position")
                 wreg = c4.selectbox("Region", AREAS)
                 
-                # Fetch Shifts
-                shifts = run_query("SELECT id, name FROM shifts")
+                # Fetch Shifts (Cached: 1 hour)
+                shifts = run_query("SELECT id, name FROM shifts", ttl=3600)
                 shift_opts = {s['name']: s['id'] for i, s in shifts.iterrows()} if not shifts.empty else {}
                 wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
                 
@@ -427,7 +485,9 @@ def manager_view_manpower():
                             sid = shift_opts.get(wshift, None)
                             run_action("INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)", 
                                        {"n":wn, "e":we, "r":wr, "reg":wreg, "sid":sid})
-                            st.success("Worker Added"); st.cache_data.clear(); st.rerun()
+                            st.toast("Worker Added Successfully!", icon="✅")
+                            time.sleep(1) # varied delay for UX
+                            st.cache_data.clear(); st.rerun()
                     else: st.error("Name and EMP ID required")
         
         
@@ -508,7 +568,7 @@ def manager_view_manpower():
 
     with tab3: # Shifts
         st.subheader("⏰ Shift Management (Duty Roster)")
-        shifts = run_query("SELECT * FROM shifts ORDER BY id")
+        shifts = run_query("SELECT * FROM shifts ORDER BY id", ttl=0) # Real-time here as we might benefit from instant updates during editing
         
         with st.expander("➕ Add New Shift"):
             c1, c2, c3 = st.columns(3)
@@ -622,8 +682,9 @@ def supervisor_view_manpower():
         selected_shift_label = st.selectbox("Select Shift", list(shift_opts.keys()))
         selected_shift_id = shift_opts[selected_shift_label]
         
-        # 2. Get Workers in Region
-        workers = run_query("SELECT id, name, role, status FROM workers WHERE region = :r AND status = 'Active' ORDER BY name", {"r": selected_region_mp})
+        # 2. Get Workers in Region (Cached 60s as this list rarely changes mid-day)
+        workers = run_query("SELECT id, name, role, status FROM workers WHERE region = :r AND status = 'Active' ORDER BY name", 
+                            params={"r": selected_region_mp}, ttl=60)
         
         if workers.empty:
             st.info(f"No active workers found in {selected_region_mp}.")
@@ -668,7 +729,8 @@ def supervisor_view_manpower():
                                        {"wid": row['ID'], "d": today, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
                 
                 if run_batch_action(batch_cmds):
-                    st.success(f"Attendance recorded for {len(edited_att)} workers!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    st.toast(f"Attendance recorded for {len(edited_att)} workers!", icon="✅")
+                    st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with tab2:
         st.dataframe(run_query("SELECT * FROM workers WHERE region = :r", {"r": selected_region_mp}), width="stretch")
@@ -692,7 +754,8 @@ def manager_view_warehouse():
                 if n and run_query("SELECT id FROM inventory WHERE name_en=:n AND location=:l", {"n":n, "l":l}, ttl=0).empty:
                     run_action("INSERT INTO inventory (name_en, category, unit, location, qty, status) VALUES (:n, :c, :u, :l, :q, 'Available')",
                               {"n":n, "c":c, "u":u, "l":l, "q":int(q)})
-                    st.success("Added"); st.cache_data.clear(); st.rerun()
+                    st.toast("Item Added Successfully!", icon="📦")
+                    st.cache_data.clear(); st.rerun()
                 else: st.error("Exists")
         st.divider()
         col_ntcc, col_snc = st.columns(2)
@@ -717,7 +780,9 @@ def manager_view_warehouse():
                         change = -int(amt) if "Lend" in op else int(amt)
                         desc = f"Lend to {proj}" if "Lend" in op else f"Borrow from {proj}"
                         res, msg = update_central_stock(it, wh, change, st.session_state.user_info['name'], desc, row['unit'])
-                        if res: st.success("Transaction Successful!"); st.cache_data.clear(); st.rerun()
+                        if res: 
+                            st.toast("Transaction Successful!", icon="🎉")
+                            st.cache_data.clear(); st.rerun()
                         else: st.error(msg)
         with c2:
             st.subheader(txt['cww_supply'])
