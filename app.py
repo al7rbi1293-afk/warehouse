@@ -39,7 +39,7 @@ txt = {
     "save_mod": "💾 Save Changes", "insufficient_stock_sk": "❌ STOP: Issue Qty > NTCC Stock!",
     "error_login": "Invalid Username or Password", "success_reg": "Registered successfully",
     "local_inv": "Branch Inventory Reports", "req_form": "Bulk Order Form", 
-    "role_night_sup": "Night Shift Supervisor", # New role text
+    "role_night_sup": "Night Shift Supervisor (B)", # Updated role text
     "select_item": "Select Item", "qty_req": "Request Qty", "send_req": "🚀 Send Bulk Order",
     "approved_reqs": "📦 Pending Issue (Bulk)", "issue": "Confirm Issue 📦",
     "transfer_btn": "Transfer Stock", "edit_profile": "Edit Profile", 
@@ -91,12 +91,14 @@ def init_db():
         );
     """)
     
+    
     # 4.2 Migration (Safe Add Columns)
     try:
         run_action("ALTER TABLE workers ADD COLUMN IF NOT EXISTS shift_id INTEGER;")
         run_action("ALTER TABLE users ADD COLUMN IF NOT EXISTS shift_id INTEGER;")
-        # Assuming users table exists from context.
     except: pass
+
+    # Removed auto-insert of "B B1" per user request.
 
 # --- 5. دوال قاعدة البيانات ---
 def run_query(query, params=None, ttl=None):
@@ -112,7 +114,14 @@ def run_action(query, params=None):
 
 # --- 6. المنطق (Logic) ---
 def login_user(username, password):
-    df = run_query("SELECT * FROM users WHERE username = :u AND password = :p", params={"u": username, "p": password}, ttl=0)
+    # Fetch user + shift name
+    query = """
+        SELECT u.*, s.name as shift_name 
+        FROM users u 
+        LEFT JOIN shifts s ON u.shift_id = s.id 
+        WHERE u.username = :u AND u.password = :p
+    """
+    df = run_query(query, params={"u": username, "p": password}, ttl=0)
     return df.iloc[0].to_dict() if not df.empty else None
 
 def register_user(username, password, name, region):
@@ -298,14 +307,19 @@ def show_main_app():
     
     
     # Module Switcher
-    if info['role'] != 'night_supervisor': # Hide switcher for night supervisor
+    # Use re-calculated is_night_shift logic helper if needed, but user_info available here
+    is_night_shift_sidebar = False
+    if info.get('role') == 'night_supervisor': is_night_shift_sidebar = True
+    if info.get('shift_name') in ['B', 'B1']: is_night_shift_sidebar = True
+
+    if not is_night_shift_sidebar: # Hide switcher for night supervisor
         st.sidebar.divider()
         st.sidebar.markdown("### 🔀 Module Selection")
         mod = st.sidebar.radio("Go to:", ["Warehouse", "Manpower"], index=0 if st.session_state.get('active_module', 'Warehouse') == 'Warehouse' else 1, key="mod_switcher")
         st.session_state.active_module = mod
         st.sidebar.divider()
     else:
-        st.sidebar.info("🌙 Night Shift Mode")
+        st.sidebar.info(f"🌙 Night Shift Mode ({info.get('shift_name', 'B')})")
 
     if st.sidebar.button(txt['refresh_data'], use_container_width=True):
         st.cache_data.clear()
@@ -331,24 +345,24 @@ def show_main_app():
 
     # Routing based on Module and Role
     
-    # Night Supervisor Logic: FORCE Manpower, HIDE Warehouse
-    if info['role'] == 'night_supervisor':
+    # Night Supervisor Logic: OR if Shift is B/B1
+    is_night_shift = False
+    if info.get('role') == 'night_supervisor': is_night_shift = True
+    if info.get('shift_name') in ['B', 'B1']: is_night_shift = True
+    
+    if is_night_shift:
         st.session_state.active_module = "Manpower"
-        # Hide Switcher if possible or just ignore it. 
-        # Since Switcher is in sidebar, we can conditionally render it, but `show_main_app` renders it before this check.
-        # To strictly enforce, we just override logic here.
     
     if st.session_state.active_module == "Warehouse":
-        if info['role'] == 'night_supervisor': 
-            st.warning("⛔ Access Restricted: Night Shift Supervisors can only access Manpower module.")
-            # Fallback
+        if is_night_shift: 
+            st.warning("⛔ Access Restricted: Night Shift (B) can only access Manpower module.")
             supervisor_view_manpower()
         elif info['role'] == 'manager': manager_view_warehouse()
         elif info['role'] == 'storekeeper': storekeeper_view()
         else: supervisor_view_warehouse()
     else:
         if info['role'] == 'manager': manager_view_manpower()
-        elif info['role'] == 'night_supervisor': supervisor_view_manpower()
+        elif is_night_shift: supervisor_view_manpower()
         else: supervisor_view_manpower()
     
     # Copyright Footer (In App)
