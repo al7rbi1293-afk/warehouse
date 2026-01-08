@@ -404,29 +404,31 @@ def manager_view_manpower():
         workers = run_query("SELECT * FROM workers ORDER BY id DESC")
         
         # Add Worker
-        with st.expander("➕ Add New Worker"):
-            c1, c2, c3, c4, c5 = st.columns(5)
-            # Layout: Name | Emp ID | Role | Region | Shift
-            wn = c1.text_input("Worker Name")
-            we = c2.text_input("EMP ID (Numbers Only)")
-            wr = c3.text_input("Role/Position")
-            wreg = c4.selectbox("Region", AREAS)
-            
-            # Fetch Shifts
-            shifts = run_query("SELECT id, name FROM shifts")
-            shift_opts = {s['name']: s['id'] for i, s in shifts.iterrows()} if not shifts.empty else {}
-            wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
-            
-            if st.button("Add Worker", use_container_width=True):
-                if wn and we:
-                    if not we.isdigit():
-                        st.error("EMP ID must be numbers only")
-                    else:
-                        sid = shift_opts.get(wshift, None)
-                        run_action("INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)", 
-                                   {"n":wn, "e":we, "r":wr, "reg":wreg, "sid":sid})
-                        st.success("Worker Added"); st.cache_data.clear(); st.rerun()
-                else: st.error("Name and EMP ID required")
+        with st.expander("➕ Add New Worker", expanded=True):
+            with st.form("add_worker_form", clear_on_submit=True):
+                c1, c2, c3, c4, c5 = st.columns(5)
+                # Layout: Name | Emp ID | Role | Region | Shift
+                wn = c1.text_input("Worker Name")
+                we = c2.text_input("EMP ID (Numbers Only)")
+                wr = c3.text_input("Role/Position")
+                wreg = c4.selectbox("Region", AREAS)
+                
+                # Fetch Shifts
+                shifts = run_query("SELECT id, name FROM shifts")
+                shift_opts = {s['name']: s['id'] for i, s in shifts.iterrows()} if not shifts.empty else {}
+                wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
+                
+                submitted = st.form_submit_button("Add Worker", use_container_width=True)
+                if submitted:
+                    if wn and we:
+                        if not we.isdigit():
+                            st.error("EMP ID must be numbers only")
+                        else:
+                            sid = shift_opts.get(wshift, None)
+                            run_action("INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)", 
+                                       {"n":wn, "e":we, "r":wr, "reg":wreg, "sid":sid})
+                            st.success("Worker Added"); st.cache_data.clear(); st.rerun()
+                    else: st.error("Name and EMP ID required")
         
         # Edit Workers
         if not workers.empty:
