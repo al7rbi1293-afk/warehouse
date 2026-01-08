@@ -430,6 +430,52 @@ def manager_view_manpower():
                             st.success("Worker Added"); st.cache_data.clear(); st.rerun()
                     else: st.error("Name and EMP ID required")
         
+        
+        # Bulk Add Workers
+        with st.expander("⚡ Mass Add Workers (Excel Copy-Paste)"):
+            st.info("Tip: You can copy rows from Excel and paste them here. Columns must match: Name, EMP ID, Role, Region, Shift.")
+            
+            # Prepare empty template
+            shifts = run_query("SELECT id, name FROM shifts")
+            shift_names = shifts['name'].tolist() if not shifts.empty else []
+            shift_map = {r['name']: r['id'] for i, r in shifts.iterrows()} if not shifts.empty else {}
+            
+            template_data = pd.DataFrame(columns=["Name", "EMP ID", "Role", "Region", "Shift"])
+            
+            edited_bulk = st.data_editor(
+                template_data,
+                num_rows="dynamic",
+                key="bulk_worker_editor",
+                column_config={
+                    "Name": st.column_config.TextColumn(required=True),
+                    "EMP ID": st.column_config.TextColumn(required=True, validate="^[0-9]+$"),
+                    "Role": st.column_config.TextColumn(),
+                    "Region": st.column_config.SelectboxColumn(options=AREAS, required=True),
+                    "Shift": st.column_config.SelectboxColumn(options=shift_names)
+                },
+                hide_index=True, width="stretch"
+            )
+            
+            if st.button("💾 Save All Workers", use_container_width=True):
+                if edited_bulk.empty:
+                    st.warning("No data to save.")
+                else:
+                    batch_cmds = []
+                    valid = True
+                    for i, row in edited_bulk.iterrows():
+                        if not row['Name'] or not row['EMP ID']:
+                            st.error(f"Row {i+1}: Name and EMP ID are required."); valid = False; break
+                        
+                        sid = shift_map.get(row['Shift']) if row['Shift'] in shift_map else None
+                        batch_cmds.append((
+                            "INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)",
+                            {"n": row['Name'], "e": row['EMP ID'], "r": row['Role'], "reg": row['Region'], "sid": sid}
+                        ))
+                    
+                    if valid:
+                        if run_batch_action(batch_cmds):
+                            st.balloons(); st.success(f"Successfully added {len(batch_cmds)} workers!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+
         # Edit Workers
         if not workers.empty:
             edited_w = st.data_editor(
