@@ -49,6 +49,7 @@ txt = {
 # --- 4. الاتصال بقاعدة البيانات ---
 try:
     conn = st.connection("supabase", type="sql")
+except:
     st.error("⚠️ Connection Error. Please check secrets.")
     st.stop()
 
