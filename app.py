@@ -6,6 +6,7 @@ from modules.utils import setup_styles, show_footer
 from modules.config import TEXT as txt, AREAS
 from modules.views.warehouse import manager_view_warehouse, storekeeper_view, supervisor_view_warehouse
 from modules.views.manpower import manager_view_manpower, supervisor_view_manpower
+from modules.views.dashboard import manager_dashboard
 
 # --- 1. Page Setup & Styling ---
 st.set_page_config(page_title="NSTC Management", layout="wide", initial_sidebar_state="expanded", page_icon="🏗️")
@@ -64,7 +65,12 @@ def show_main_app():
     if not is_night_shift_sidebar: # Hide switcher for night supervisor
         st.sidebar.divider()
         st.sidebar.markdown("### 🔀 Module Selection")
-        mod = st.sidebar.radio("Go to:", ["Warehouse", "Manpower"], index=0 if st.session_state.get('active_module', 'Warehouse') == 'Warehouse' else 1, key="mod_switcher")
+        # Add Dashboard for Manager
+        options = ["Warehouse", "Manpower"]
+        if info.get('role') == 'manager':
+            options = ["Dashboard", "Warehouse", "Manpower"]
+            
+        mod = st.sidebar.radio("Go to:", options, index=0 if st.session_state.get('active_module') in options else 0, key="mod_switcher")
         st.session_state.active_module = mod
         st.sidebar.divider()
     else:
@@ -112,7 +118,9 @@ def show_main_app():
     if is_night_shift:
         st.session_state.active_module = "Manpower"
     
-    if st.session_state.active_module == "Warehouse":
+    if st.session_state.active_module == "Dashboard":
+        manager_dashboard()
+    elif st.session_state.active_module == "Warehouse":
         if is_night_shift: 
             st.warning("⛔ Access Restricted: Night Shift (B) can only access Manpower module.")
             supervisor_view_manpower()

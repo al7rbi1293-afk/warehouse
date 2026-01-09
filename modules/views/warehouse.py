@@ -18,19 +18,20 @@ def manager_view_warehouse():
     
     with tab1: # Stock
         with st.expander(txt['create_item_title'], expanded=False):
-            c1, c2, c3, c4 = st.columns(4)
-            n = c1.text_input("Name")
-            c = c2.selectbox("Category", CATS_EN)
-            l = c3.selectbox("Location", LOCATIONS)
-            q = c4.number_input("Qty", 0, 10000)
-            u = st.selectbox("Unit", ["Piece", "Carton", "Set"])
-            if st.button(txt['create_btn'], use_container_width=True):
-                if n and run_query("SELECT id FROM inventory WHERE name_en=:n AND location=:l", {"n":n, "l":l}, ttl=0).empty:
-                    run_action("INSERT INTO inventory (name_en, category, unit, location, qty, status) VALUES (:n, :c, :u, :l, :q, 'Available')",
-                              {"n":n, "c":c, "u":u, "l":l, "q":int(q)})
-                    st.toast("Item Added Successfully!", icon="📦")
-                    st.cache_data.clear(); st.rerun()
-                else: st.error("Exists")
+            with st.form("create_item_form", clear_on_submit=True):
+                c1, c2, c3, c4 = st.columns(4)
+                n = c1.text_input("Name")
+                c = c2.selectbox("Category", CATS_EN)
+                l = c3.selectbox("Location", LOCATIONS)
+                q = c4.number_input("Qty", 0, 10000)
+                u = st.selectbox("Unit", ["Piece", "Carton", "Set"])
+                if st.form_submit_button(txt['create_btn'], use_container_width=True):
+                    if n and run_query("SELECT id FROM inventory WHERE name_en=:n AND location=:l", {"n":n, "l":l}, ttl=0).empty:
+                        run_action("INSERT INTO inventory (name_en, category, unit, location, qty, status) VALUES (:n, :c, :u, :l, :q, 'Available')",
+                                  {"n":n, "c":c, "u":u, "l":l, "q":int(q)})
+                        st.toast("Item Added Successfully!", icon="📦")
+                        st.cache_data.clear(); st.rerun()
+                    else: st.error("Exists")
         st.divider()
         col_ntcc, col_snc = st.columns(2)
         with col_ntcc: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "mgr")
@@ -41,36 +42,47 @@ def manager_view_warehouse():
         with c1:
             st.subheader(txt['project_loans'])
             with st.container(border=True):
-                wh = st.selectbox("From/To Warehouse", LOCATIONS, key="l_wh")
-                proj = st.selectbox("External Project", EXTERNAL_PROJECTS)
+                wh = st.selectbox("From/To Warehouse", LOCATIONS, key="l_wh") # Outside form to update list
                 inv = get_inventory(wh)
-                if not inv.empty:
-                    it = st.selectbox("Select Item", inv['name_en'].unique(), key="l_it")
-                    row = inv[inv['name_en']==it].iloc[0]
-                    st.caption(f"Current Stock: {row['qty']} {row['unit']}")
-                    op = st.radio("Action Type", ["Lend (Stock Decrease)", "Borrow (Stock Increase)"], horizontal=True)
-                    amt = st.number_input("Quantity", 1, 10000, key="l_q")
-                    if st.button(txt['exec_trans'], use_container_width=True, key="btn_l"):
-                        change = -int(amt) if "Lend" in op else int(amt)
-                        desc = f"Lend to {proj}" if "Lend" in op else f"Borrow from {proj}"
-                        res, msg = update_central_stock(it, wh, change, st.session_state.user_info['name'], desc, row['unit'])
-                        if res: 
-                            st.toast("Transaction Successful!", icon="🎉")
-                            st.cache_data.clear(); st.rerun()
-                        else: st.error(msg)
+                
+                with st.form("loan_execution_form"):
+                    proj = st.selectbox("External Project", EXTERNAL_PROJECTS)
+                    if not inv.empty:
+                        it = st.selectbox("Select Item", inv['name_en'].unique(), key="l_it")
+                        op = st.radio("Action Type", ["Lend (Stock Decrease)", "Borrow (Stock Increase)"], horizontal=True)
+                        amt = st.number_input("Quantity", 1, 10000, key="l_q")
+                        
+                        if st.form_submit_button(txt['exec_trans'], use_container_width=True):
+                            row = inv[inv['name_en']==it].iloc[0]
+                            change = -int(amt) if "Lend" in op else int(amt)
+                            desc = f"Lend to {proj}" if "Lend" in op else f"Borrow from {proj}"
+                            res, msg = update_central_stock(it, wh, change, st.session_state.user_info['name'], desc, row['unit'])
+                            if res: 
+                                st.toast("Transaction Successful!", icon="🎉")
+                                st.cache_data.clear(); st.rerun()
+                            else: st.error(msg)
+                    else:
+                        st.info("No stock available.")
+                        st.form_submit_button("Submit", disabled=True)
+
         with c2:
             st.subheader(txt['cww_supply'])
             with st.container(border=True):
                 dest = st.selectbox("To Warehouse", LOCATIONS, key="c_wh")
                 inv = get_inventory(dest)
-                if not inv.empty:
-                    it = st.selectbox("Item Received", inv['name_en'].unique(), key="c_it")
-                    row = inv[inv['name_en']==it].iloc[0]
-                    amt = st.number_input("Quantity", 1, 10000, key="c_q")
-                    if st.button("Receive from CWW", use_container_width=True, key="btn_c"):
-                        res, msg = update_central_stock(it, dest, amt, st.session_state.user_info['name'], "From CWW", row['unit'])
-                        if res: st.success("Done"); st.cache_data.clear(); st.rerun()
-                        else: st.error(msg)
+                
+                with st.form("receive_cww_form"):
+                    if not inv.empty:
+                        it = st.selectbox("Item Received", inv['name_en'].unique(), key="c_it")
+                        amt = st.number_input("Quantity", 1, 10000, key="c_q")
+                        if st.form_submit_button("Receive from CWW", use_container_width=True):
+                            row = inv[inv['name_en']==it].iloc[0]
+                            res, msg = update_central_stock(it, dest, amt, st.session_state.user_info['name'], "From CWW", row['unit'])
+                            if res: st.success("Done"); st.cache_data.clear(); st.rerun()
+                            else: st.error(msg)
+                    else:
+                        st.info("No items found.")
+                        st.form_submit_button("Submit", disabled=True)
         st.divider()
         loan_logs = run_query("SELECT log_date, item_name, change_amount, location, action_type FROM stock_logs WHERE action_type LIKE '%Lend%' OR action_type LIKE '%Borrow%' ORDER BY log_date DESC")
         if not loan_logs.empty: st.dataframe(loan_logs, width="stretch")

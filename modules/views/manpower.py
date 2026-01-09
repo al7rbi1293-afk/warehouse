@@ -4,7 +4,7 @@ import pandas as pd
 import time
 from datetime import datetime
 from modules.database import run_query, run_action, run_batch_action
-from modules.config import AREAS
+from modules.config import AREAS, ATTENDANCE_STATUSES
 
 # ==========================================
 # ============ MANAGER VIEW (MANPOWER) =====
@@ -128,16 +128,17 @@ def manager_view_manpower():
         shifts = run_query("SELECT * FROM shifts ORDER BY id", ttl=0) # Real-time here as we might benefit from instant updates during editing
         
         with st.expander("➕ Add New Shift"):
-            c1, c2, c3 = st.columns(3)
-            sn = c1.text_input("Shift Name (e.g. Morning A)")
-            ss = c2.time_input("Start Time")
-            se = c3.time_input("End Time")
-            if st.button("Add Shift"):
-                if sn:
-                    s_str = ss.strftime("%H:%M")
-                    e_str = se.strftime("%H:%M")
-                    run_action("INSERT INTO shifts (name, start_time, end_time) VALUES (:n, :s, :e)", {"n":sn, "s":s_str, "e":e_str})
-                    st.success("Shift Added"); st.cache_data.clear(); st.rerun()
+            with st.form("add_shift_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                sn = c1.text_input("Shift Name (e.g. Morning A)")
+                ss = c2.time_input("Start Time")
+                se = c3.time_input("End Time")
+                if st.form_submit_button("Add Shift"):
+                    if sn:
+                        s_str = ss.strftime("%H:%M")
+                        e_str = se.strftime("%H:%M")
+                        run_action("INSERT INTO shifts (name, start_time, end_time) VALUES (:n, :s, :e)", {"n":sn, "s":s_str, "e":e_str})
+                        st.success("Shift Added"); st.cache_data.clear(); st.rerun()
 
         if not shifts.empty:
             st.data_editor(shifts, key="shift_editor", disabled=["id"], hide_index=True, width="stretch")
@@ -160,59 +161,79 @@ def manager_view_manpower():
             if selected_sup_u:
                 current_row = supervisors[supervisors['username'] == selected_sup_u].iloc[0]
                 
-                # Region Editing
-                current_regions_str = current_row['region'] if current_row['region'] else ""
-                current_regions_list = current_regions_str.split(",") if current_regions_str else []
-                valid_defaults = [r for r in current_regions_list if r in AREAS]
-                new_regions = st.multiselect(f"Assign Regions for {current_row['name']}", AREAS, default=valid_defaults)
-                
-                # Shift Editing (New)
-                shifts = run_query("SELECT id, name FROM shifts")
-                # We need to fetch current shift for user. Query above didn't get it.
-                # Let's re-fetch full user row.
-                u_full = run_query("SELECT shift_id, role FROM users WHERE username = :u", {"u":selected_sup_u}).iloc[0]
-                
-                s_opts = {s['name']: s['id'] for i, s in shifts.iterrows()}
-                cur_s_id = u_full['shift_id']
-                # Create reverse lookup or find name
-                cur_s_name = next((k for k, v in s_opts.items() if v == cur_s_id), None)
-                idx = list(s_opts.keys()).index(cur_s_name) if cur_s_name in s_opts else 0
-                
-                new_shift_name = st.selectbox("Assign Shift", list(s_opts.keys()), index=idx if s_opts else 0)
-                
-                # Role Editing (To allow changing to Night Supervisor)
-                roles = ["supervisor", "storekeeper", "night_supervisor"]
-                cur_role = u_full['role']
-                new_role = st.selectbox("Assign Role", roles, index=roles.index(cur_role) if cur_role in roles else 0)
+                with st.form("update_sup_form"):
+                    # Region Editing
+                    current_regions_str = current_row['region'] if current_row['region'] else ""
+                    current_regions_list = current_regions_str.split(",") if current_regions_str else []
+                    valid_defaults = [r for r in current_regions_list if r in AREAS]
+                    new_regions = st.multiselect(f"Assign Regions for {current_row['name']}", AREAS, default=valid_defaults)
+                    
+                    # Shift Editing (New)
+                    shifts = run_query("SELECT id, name FROM shifts")
+                    # We need to fetch current shift for user. Query above didn't get it.
+                    # Let's re-fetch full user row.
+                    u_full = run_query("SELECT shift_id, role FROM users WHERE username = :u", {"u":selected_sup_u}).iloc[0]
+                    
+                    s_opts = {s['name']: s['id'] for i, s in shifts.iterrows()}
+                    cur_s_id = u_full['shift_id']
+                    # Create reverse lookup or find name
+                    cur_s_name = next((k for k, v in s_opts.items() if v == cur_s_id), None)
+                    idx = list(s_opts.keys()).index(cur_s_name) if cur_s_name in s_opts else 0
+                    
+                    new_shift_name = st.selectbox("Assign Shift", list(s_opts.keys()), index=idx if s_opts else 0)
+                    
+                    # Role Editing (To allow changing to Night Supervisor)
+                    roles = ["supervisor", "storekeeper", "night_supervisor"]
+                    cur_role = u_full['role']
+                    new_role = st.selectbox("Assign Role", roles, index=roles.index(cur_role) if cur_role in roles else 0)
 
-                if st.button("Update Supervisor Profile"):
-                    new_reg_str = ",".join(new_regions)
-                    new_sid = s_opts.get(new_shift_name)
-                    run_action("UPDATE users SET region=:r, shift_id=:sid, role=:role WHERE username=:u", 
-                               {"r": new_reg_str, "sid":new_sid, "role":new_role, "u": selected_sup_u})
-                    st.success(f"Updated {current_row['name']}"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    if st.form_submit_button("Update Supervisor Profile"):
+                        new_reg_str = ",".join(new_regions)
+                        new_sid = s_opts.get(new_shift_name)
+                        run_action("UPDATE users SET region=:r, shift_id=:sid, role=:role WHERE username=:u", 
+                                {"r": new_reg_str, "sid":new_sid, "role":new_role, "u": selected_sup_u})
+                        st.success(f"Updated {current_row['name']}"); st.cache_data.clear(); time.sleep(1); st.rerun()
             
             st.divider()
             st.dataframe(supervisors, width="stretch")
 
     with tab1: # Reports
-        st.subheader("📊 Today's Attendance")
-        today = datetime.now().strftime("%Y-%m-%d")
+        st.subheader("📊 Daily Attendance Report")
+        
+        # Date Selection
+        report_date = st.date_input("Select Date", datetime.now()).strftime("%Y-%m-%d")
+        
+        # Fetch Data
         df = run_query("""
             SELECT w.name, w.region, w.role, a.status, s.name as shift, a.notes 
             FROM attendance a 
             JOIN workers w ON a.worker_id = w.id 
             LEFT JOIN shifts s ON a.shift_id = s.id
             WHERE a.date = :d
-        """, {"d": today})
+        """, {"d": report_date})
         
-        if df.empty: st.info("No attendance records for today.")
+        if df.empty:
+            st.info(f"No attendance records for {report_date}.")
         else:
+            # Summary Metrics
             c1, c2, c3 = st.columns(3)
             c1.metric("Present", len(df[df['status'] == 'Present']))
             c2.metric("Absent", len(df[df['status'] == 'Absent']))
             c3.metric("On Leave", len(df[df['status'] == 'Vacation']))
-            st.dataframe(df, width="stretch")
+            
+            st.divider()
+            
+            # Region Tabs
+            regions = df['region'].unique()
+            if len(regions) > 0:
+                rtabs = st.tabs(list(regions))
+                for i, region in enumerate(regions):
+                    with rtabs[i]:
+                        st.caption(f"Attendance for {region}")
+                        reg_df = df[df['region'] == region]
+                        st.dataframe(reg_df, width="stretch", hide_index=True)
+            else:
+                 st.dataframe(df, width="stretch")
 
 # ==========================================
 # ============ SUPERVISOR VIEW (MANPOWER) ==
@@ -227,16 +248,20 @@ def supervisor_view_manpower():
     tab1, tab2 = st.tabs(["📝 Daily Attendance", "👥 My Workers"])
     
     with tab1:
-        st.subheader(f"📅 Attendance for {datetime.now().strftime('%Y-%m-%d')} - {selected_region_mp}")
+        c_date, c_shift = st.columns([1, 2])
+        selected_date = c_date.date_input("Select Date", datetime.now(), key="att_date_picker")
+        date_str = selected_date.strftime('%Y-%m-%d')
         
-        # 1. Select Shift
+        st.subheader(f"📅 Attendance for {date_str} - {selected_region_mp}")
+        
+        # 1. Select Shift (Move outside if causing refresh issues? Shifts rarely change, fine here)
         shifts = run_query("SELECT * FROM shifts")
         if shifts.empty:
             st.warning("No shifts defined. Please contact Manager.")
             return
             
         shift_opts = {f"{r['name']} ({r['start_time']}-{r['end_time']})": r['id'] for i, r in shifts.iterrows()}
-        selected_shift_label = st.selectbox("Select Shift", list(shift_opts.keys()))
+        selected_shift_label = c_shift.selectbox("Select Shift", list(shift_opts.keys()))
         selected_shift_id = shift_opts[selected_shift_label]
         
         # 2. Get Workers in Region (Cached 60s as this list rarely changes mid-day)
@@ -246,11 +271,15 @@ def supervisor_view_manpower():
         if workers.empty:
             st.info(f"No active workers found in {selected_region_mp}.")
         else:
-            today = datetime.now().strftime("%Y-%m-%d")
-            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": today, "s": selected_shift_id})
+            # Fetch existing attendance for the SELECTED date
+            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": date_str, "s": selected_shift_id})
             
             display_data = []
             for i, w in workers.iterrows():
+                # Default status logic:
+                # If editing past, showing 'Present' as default might be misleading if they weren't marked.
+                # However, for 'new' entry, Present is good default. 
+                # Ideally, we check if record exists. If not, default is Present.
                 row = {"ID": w['id'], "Name": w['name'], "Role": w['role'], "Status": "Present", "Notes": ""}
                 if not existing.empty:
                     match = existing[existing['worker_id'] == w['id']]
@@ -261,33 +290,34 @@ def supervisor_view_manpower():
             
             df_att = pd.DataFrame(display_data)
             
-            edited_att = st.data_editor(
-                df_att,
-                key=f"att_editor_{selected_region_mp}_{selected_shift_id}",
-                column_config={
-                    "ID": st.column_config.NumberColumn(disabled=True),
-                    "Name": st.column_config.TextColumn(disabled=True),
-                    "Role": st.column_config.TextColumn(disabled=True),
-                    "Status": st.column_config.SelectboxColumn(
-                        options=["Present", "Absent", "Vacation", "Sick Leave"], required=True),
-                    "Notes": st.column_config.TextColumn()
-                },
-                hide_index=True, width="stretch"
-            )
-            
-            if st.button("💾 Submit Attendance"):
-                batch_cmds = []
-                for i, row in edited_att.iterrows():
-                    # 1. Delete Existing
-                    batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
-                                       {"wid": row['ID'], "d": today, "sid": selected_shift_id}))
-                    # 2. Insert New
-                    batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
-                                       {"wid": row['ID'], "d": today, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+            with st.form("attendance_form"):
+                edited_att = st.data_editor(
+                    df_att,
+                    key=f"att_editor_{selected_region_mp}_{selected_shift_id}",
+                    column_config={
+                        "ID": st.column_config.NumberColumn(disabled=True),
+                        "Name": st.column_config.TextColumn(disabled=True),
+                        "Role": st.column_config.TextColumn(disabled=True),
+                        "Status": st.column_config.SelectboxColumn(
+                            options=ATTENDANCE_STATUSES, required=True),
+                        "Notes": st.column_config.TextColumn()
+                    },
+                    hide_index=True, width="stretch"
+                )
                 
-                if run_batch_action(batch_cmds):
-                    st.toast(f"Attendance recorded for {len(edited_att)} workers!", icon="✅")
-                    st.cache_data.clear(); time.sleep(1); st.rerun()
+                if st.form_submit_button("💾 Submit Attendance"):
+                    batch_cmds = []
+                    for i, row in edited_att.iterrows():
+                        # 1. Delete Existing
+                        batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
+                                           {"wid": row['ID'], "d": date_str, "sid": selected_shift_id}))
+                        # 2. Insert New
+                        batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
+                                           {"wid": row['ID'], "d": date_str, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+                    
+                    if run_batch_action(batch_cmds):
+                        st.toast(f"Attendance recorded for {len(edited_att)} workers on {date_str}!", icon="✅")
+                        st.cache_data.clear(); time.sleep(1); st.rerun()
 
     with tab2:
         st.dataframe(run_query("SELECT * FROM workers WHERE region = :r", {"r": selected_region_mp}), width="stretch")

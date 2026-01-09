@@ -32,3 +32,5 @@ TEXT = {
     "new_name": "New Name", "new_pass": "New Password", "save_changes": "Save Changes",
     "update_btn": "Update", "cancel_req": "Cancel Request 🗑️"
 }
+
+ATTENDANCE_STATUSES = ["Present", "Absent", "Vacation", "Day Off", "Eid Holiday", "Sick Leave"]
