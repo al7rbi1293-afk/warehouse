@@ -208,7 +208,7 @@ def storekeeper_view():
     st.caption("Manage requests and inventory")
     view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
     
-    elif view_option == txt['approved_reqs']: # Bulk Issue
+    if view_option == txt['approved_reqs']: # Bulk Issue
         reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=0)
         
         @st.fragment
