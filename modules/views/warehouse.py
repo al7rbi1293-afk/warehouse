@@ -34,9 +34,10 @@ def manager_view_warehouse():
                         st.rerun()
                     else: st.error("Exists")
         st.divider()
-        col_ntcc, col_snc = st.columns(2)
-        with col_ntcc: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "mgr")
-        with col_snc: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "mgr")
+        # Optimization: Use tabs for locations to avoid rendering both tables at once unless needed
+        st_tabs = st.tabs(["NTCC Stock", "SNC Stock"])
+        with st_tabs[0]: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "mgr")
+        with st_tabs[1]: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "mgr")
 
     elif view_option == txt['ext_tab']: # External
         c1, c2 = st.columns(2)
@@ -209,7 +210,8 @@ def storekeeper_view():
     view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
     
     if view_option == txt['approved_reqs']: # Bulk Issue
-        reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=0)
+        # Optimized Query: Select only needed columns
+        reqs = run_query("SELECT req_id, region, item_name, qty, unit, notes, status FROM requests WHERE status='Approved'", ttl=0)
         
         @st.fragment
         def render_storekeeper_bulk_issue(reqs_df):
