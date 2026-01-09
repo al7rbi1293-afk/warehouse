@@ -17,7 +17,13 @@ def manager_view_manpower():
     with tab2: # Worker Database
         st.subheader("Manage Workers")
         # Optimization: Cache worker list for 10 seconds to avoid reload flicker but keep fresh enough
-        workers = run_query("SELECT * FROM workers ORDER BY id DESC", ttl=10)
+        # Join with shifts to get simple name
+        workers = run_query("""
+            SELECT w.id, w.created_at, w.name, w.emp_id, w.role, w.region, w.status, w.shift_id, s.name as shift_name 
+            FROM workers w 
+            LEFT JOIN shifts s ON w.shift_id = s.id 
+            ORDER BY w.id DESC
+        """, ttl=10)
         
         if not workers.empty:
             excel_data = convert_df_to_excel(workers, "Workers")
@@ -34,8 +40,8 @@ def manager_view_manpower():
                 wreg = c4.selectbox("Region", AREAS)
                 
                 # Fetch Shifts (Cached: 10s to reflect updates)
-                shifts = run_query("SELECT id, name FROM shifts", ttl=10)
-                shift_opts = {s['name']: s['id'] for i, s in shifts.iterrows()} if not shifts.empty else {}
+                shifts_ref = run_query("SELECT id, name FROM shifts", ttl=10)
+                shift_opts = {s['name']: s['id'] for i, s in shifts_ref.iterrows()} if not shifts_ref.empty else {}
                 wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
                 
                 submitted = st.form_submit_button("Add Worker", use_container_width=True)
@@ -58,9 +64,8 @@ def manager_view_manpower():
             st.info("Tip: You can copy rows from Excel and paste them here. Columns must match: Name, EMP ID, Role, Region, Shift.")
             
             # Prepare empty template
-            shifts = run_query("SELECT id, name FROM shifts")
-            shift_names = shifts['name'].tolist() if not shifts.empty else []
-            shift_map = {r['name']: r['id'] for i, r in shifts.iterrows()} if not shifts.empty else {}
+            # Re-use shifts_ref from above or fetch again
+            shift_names = list(shift_opts.keys())
             
             template_data = pd.DataFrame(columns=["Name", "EMP ID", "Role", "Region", "Shift"])
             
@@ -88,7 +93,7 @@ def manager_view_manpower():
                         if not row['Name'] or not row['EMP ID']:
                             st.error(f"Row {i+1}: Name and EMP ID are required."); valid = False; break
                         
-                        sid = shift_map.get(row['Shift']) if row['Shift'] in shift_map else None
+                        sid = shift_opts.get(row['Shift']) if row['Shift'] in shift_opts else None
                         batch_cmds.append((
                             "INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)",
                             {"n": row['Name'], "e": row['EMP ID'], "r": row['Role'], "reg": row['Region'], "sid": sid}
@@ -100,13 +105,18 @@ def manager_view_manpower():
 
         # Edit Workers
         if not workers.empty:
+            # Prepare shifts mapping for edit
+            shifts_lookup = shift_opts
+            shift_names_list = list(shifts_lookup.keys())
+
             edited_w = st.data_editor(
                 workers,
                 key="worker_editor",
                 column_config={
                     "id": st.column_config.NumberColumn(disabled=True),
                     "created_at": st.column_config.DatetimeColumn(disabled=True),
-                    "shift_id": st.column_config.NumberColumn(disabled=True), # Hide or disable complex edit
+                    "shift_id": None, # Hide ID
+                    "shift_name": st.column_config.SelectboxColumn("Shift", options=shift_names_list, required=True),
                     "emp_id": st.column_config.TextColumn("EMP ID", required=True),
                     "status": st.column_config.SelectboxColumn(options=["Active", "Inactive"], required=True),
                     "region": st.column_config.SelectboxColumn(options=AREAS, required=True)
@@ -116,15 +126,16 @@ def manager_view_manpower():
             if st.button("💾 Save Worker Changes"):
                 changes = 0
                 for index, row in edited_w.iterrows():
-                    # Basic validation for update could be added here if needed
+                    # Basic validation
                     eid = str(row['emp_id']) if row['emp_id'] else ""
                     if eid and not eid.isdigit():
-                         st.error(f"Invalid EMP ID for {row['name']}: Numbers only."); continue
-
-                    run_action("UPDATE workers SET name=:n, emp_id=:e, role=:r, region=:reg, status=:s WHERE id=:id",
-                               {"n":row['name'], "e":eid, "r":row['role'], "reg":row['region'], "s":row['status'], "id":row['id']})
-                    # Note: Editing Shift ID in data_editor is complex with FKs. 
-                    # Ideally we add a "Move Shift" Action or handle it here if we load shift name.
+                            st.error(f"Invalid EMP ID for {row['name']}: Numbers only."); continue
+                    
+                    # Resolve Shift ID
+                    new_sid = shifts_lookup.get(row['shift_name'])
+                    
+                    run_action("UPDATE workers SET name=:n, emp_id=:e, role=:r, region=:reg, status=:s, shift_id=:sid WHERE id=:id",
+                               {"n":row['name'], "e":eid, "r":row['role'], "reg":row['region'], "s":row['status'], "sid":new_sid, "id":row['id']})
                     changes += 1
                 if changes > 0: st.success("Updated"); st.cache_data.clear(); time.sleep(1); st.rerun()
 
@@ -263,33 +274,33 @@ def supervisor_view_manpower():
         date_str = selected_date.strftime('%Y-%m-%d')
         
         st.subheader(f"📅 Attendance for {date_str} - {selected_region_mp}")
+
+        # AUTO-DETECT SHIFT from Supervisor Profile
+        # We assume the Supervisor is logged in and their shift_id is in user_info (added in auth.py)
+        # If user_info doesn't have it (legacy session), we default or ask.
+        # Ideally, we should trust the user profile.
         
-        # 1. Select Shift (Move outside if causing refresh issues? Shifts rarely change, fine here)
-        shifts = run_query("SELECT * FROM shifts")
-        if shifts.empty:
-            st.warning("No shifts defined. Please contact Manager.")
+        my_shift_id = user.get('shift_id')
+        my_shift_name = user.get('shift_name', 'Unknown')
+        
+        if not my_shift_id:
+            st.error("You are not assigned to a Shift. Please contact Manager.")
             return
-            
-        shift_opts = {f"{r['name']} ({r['start_time']}-{r['end_time']})": r['id'] for i, r in shifts.iterrows()}
-        selected_shift_label = c_shift.selectbox("Select Shift", list(shift_opts.keys()))
-        selected_shift_id = shift_opts[selected_shift_label]
+
+        st.info(f"Taking Attendance for: **{my_shift_name}** Shift")
         
-        # 2. Get Workers in Region (Cached 60s as this list rarely changes mid-day)
-        workers = run_query("SELECT id, name, role, status FROM workers WHERE region = :r AND status = 'Active' ORDER BY name", 
-                            params={"r": selected_region_mp}, ttl=60)
+        # 1. Get Workers in Region AND Shift
+        workers = run_query("SELECT id, name, role, status FROM workers WHERE region = :r AND shift_id = :sid AND status = 'Active' ORDER BY name", 
+                            params={"r": selected_region_mp, "sid": my_shift_id}, ttl=60)
         
         if workers.empty:
-            st.info(f"No active workers found in {selected_region_mp}.")
+            st.info(f"No active workers found in {selected_region_mp} for {my_shift_name} Shift.")
         else:
-            # Fetch existing attendance for the SELECTED date
-            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": date_str, "s": selected_shift_id})
+            # Fetch existing attendance for the SELECTED date and SHIFT
+            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": date_str, "s": my_shift_id})
             
             display_data = []
             for i, w in workers.iterrows():
-                # Default status logic:
-                # If editing past, showing 'Present' as default might be misleading if they weren't marked.
-                # However, for 'new' entry, Present is good default. 
-                # Ideally, we check if record exists. If not, default is Present.
                 row = {"ID": w['id'], "Name": w['name'], "Role": w['role'], "Status": "Present", "Notes": ""}
                 if not existing.empty:
                     match = existing[existing['worker_id'] == w['id']]
@@ -303,7 +314,7 @@ def supervisor_view_manpower():
             with st.form("attendance_form"):
                 edited_att = st.data_editor(
                     df_att,
-                    key=f"att_editor_{selected_region_mp}_{selected_shift_id}",
+                    key=f"att_editor_{selected_region_mp}_{my_shift_id}",
                     column_config={
                         "ID": st.column_config.NumberColumn(disabled=True),
                         "Name": st.column_config.TextColumn(disabled=True),
@@ -320,10 +331,10 @@ def supervisor_view_manpower():
                     for i, row in edited_att.iterrows():
                         # 1. Delete Existing
                         batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
-                                           {"wid": row['ID'], "d": date_str, "sid": selected_shift_id}))
+                                           {"wid": row['ID'], "d": date_str, "sid": my_shift_id}))
                         # 2. Insert New
                         batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
-                                           {"wid": row['ID'], "d": date_str, "sid": selected_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+                                           {"wid": row['ID'], "d": date_str, "sid": my_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
                     
                     if run_batch_action(batch_cmds):
                         st.toast(f"Attendance recorded for {len(edited_att)} workers on {date_str}!", icon="✅")
