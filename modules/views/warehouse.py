@@ -200,6 +200,7 @@ def manager_view_warehouse():
 # ==========================================
 def storekeeper_view():
     st.header(txt['storekeeper_role'])
+    st.caption("Manage requests and inventory")
     t1, t2, t3, t4 = st.tabs([txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"])
     
     with t1: # Bulk Issue
