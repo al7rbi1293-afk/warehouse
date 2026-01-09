@@ -208,15 +208,11 @@ def storekeeper_view():
     st.caption("Manage requests and inventory")
     view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
     
-    if view_option == txt['approved_reqs']: # Bulk Issue
+    elif view_option == txt['approved_reqs']: # Bulk Issue
         reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=0)
-        if reqs.empty: st.info("No tasks")
-        else:
-                                    else:
-                                        st.error("Transaction failed.")
-
-    @st.fragment
-    def render_storekeeper_bulk_issue(reqs_df):
+        
+        @st.fragment
+        def render_storekeeper_bulk_issue(reqs_df):
             regions = reqs_df['region'].unique()
             if len(regions) > 0:
                 rtabs = st.tabs(list(regions))
@@ -278,9 +274,9 @@ def storekeeper_view():
                                         st.success(f"Issued {issued_count} items!"); time.sleep(1); st.rerun()
                                     else:
                                         st.error("Transaction failed.")
-    
-    if reqs.empty: st.info("No tasks")
-    else: render_storekeeper_bulk_issue(reqs)
+        
+        if reqs.empty: st.info("No tasks")
+        else: render_storekeeper_bulk_issue(reqs)
 
     elif view_option == "📋 Issued Today": # Issued Today
         st.subheader("📋 Items Issued Today")
