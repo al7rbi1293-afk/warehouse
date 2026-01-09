@@ -38,7 +38,7 @@ def setup_styles():
             border-radius: 8px;
         }
         /* Footer */
-        .footer {position: fixed; left: 0; bottom: 0; width: 100%; background-color: transparent; color: grey; text-align: right; padding-right: 20px; padding-bottom: 10px; z-index: 100;}
+        .footer {position: fixed; left: 0; bottom: 0; width: 100%; background-color: transparent; color: grey; text-align: left; padding-left: 20px; padding-bottom: 10px; z-index: 100;}
         </style>
     """, unsafe_allow_html=True)
 

@@ -87,4 +87,11 @@ def init_db():
         run_action("ALTER TABLE workers ADD COLUMN IF NOT EXISTS shift_id INTEGER;")
         run_action("ALTER TABLE users ADD COLUMN IF NOT EXISTS shift_id INTEGER;")
         run_action("ALTER TABLE workers ADD COLUMN IF NOT EXISTS emp_id TEXT;") # Add EMP ID
+        
+        # Performance Indexes
+        run_action("CREATE INDEX IF NOT EXISTS idx_inv_loc ON inventory(location);")
+        run_action("CREATE INDEX IF NOT EXISTS idx_inv_name ON inventory(name_en);")
+        run_action("CREATE INDEX IF NOT EXISTS idx_workers_reg ON workers(region);")
+        run_action("CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(date);")
+        run_action("CREATE INDEX IF NOT EXISTS idx_req_stat ON requests(status);")
     except: pass

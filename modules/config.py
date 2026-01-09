@@ -12,7 +12,7 @@ AREAS = [
 ]
 
 TEXT = {
-    "app_title": "NSTC Integrated Project Management",
+    "app_title": "NSTC Project Managment app",
     "login_page": "Login", "register_page": "Register",
     "username": "Username", "password": "Password",
     "fullname": "Full Name", "region": "Region",
