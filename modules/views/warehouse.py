@@ -201,9 +201,9 @@ def manager_view_warehouse():
 def storekeeper_view():
     st.header(txt['storekeeper_role'])
     st.caption("Manage requests and inventory")
-    t1, t2, t3, t4 = st.tabs([txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"])
+    tab_approved, tab_issued, tab_ntcc, tab_snc = st.tabs([txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"])
     
-    with t1: # Bulk Issue
+    with tab_approved: # Bulk Issue
         reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=10)
         if reqs.empty: st.info("No tasks")
         else:
@@ -276,14 +276,14 @@ def storekeeper_view():
                                 else:
                                     st.error("Transaction failed.")
 
-    with t2: # Issued Today
+    with tab_issued: # Issued Today
         st.subheader("📋 Items Issued Today")
         today_log = run_query("""SELECT item_name, qty, unit, region, supervisor_name, notes, request_date FROM requests WHERE status IN ('Issued', 'Received') AND request_date::date = CURRENT_DATE ORDER BY request_date DESC""")
         if today_log.empty: st.info("Nothing issued today yet.")
         else: st.dataframe(today_log, width="stretch")
 
-    with t3: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "sk")
-    with t4: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "sk")
+    with tab_ntcc: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "sk")
+    with tab_snc: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "sk")
 
 # ==========================================
 # ============ SUPERVISOR VIEW (WH) ========
