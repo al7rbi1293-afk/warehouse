@@ -31,32 +31,35 @@ def manager_view_manpower():
         
         # Add Worker
         with st.expander("➕ Add New Worker", expanded=True):
-            with st.form("add_worker_form", clear_on_submit=True):
-                c1, c2, c3, c4, c5 = st.columns(5)
-                # Layout: Name | Emp ID | Role | Region | Shift
-                wn = c1.text_input("Worker Name")
-                we = c2.text_input("EMP ID (Numbers Only)")
-                wr = c3.text_input("Role/Position")
-                wreg = c4.selectbox("Region", AREAS)
-                
-                # Fetch Shifts (Cached: 10s to reflect updates)
-                shifts_ref = run_query("SELECT id, name FROM shifts", ttl=10)
-                shift_opts = {s['name']: s['id'] for i, s in shifts_ref.iterrows()} if not shifts_ref.empty else {}
-                wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
-                
-                submitted = st.form_submit_button("Add Worker", use_container_width=True)
-                if submitted:
-                    if wn and we:
-                        if not we.isdigit():
-                            st.error("EMP ID must be numbers only")
-                        else:
-                            sid = shift_opts.get(wshift, None)
-                            run_action("INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)", 
-                                       {"n":wn, "e":we, "r":wr, "reg":wreg, "sid":sid})
-                            st.toast("Worker Added Successfully!", icon="✅")
-                            time.sleep(1) # varied delay for UX
-                            st.cache_data.clear(); st.rerun()
-                    else: st.error("Name and EMP ID required")
+            @st.fragment
+            def render_add_worker_form():
+                with st.form("add_worker_form", clear_on_submit=True):
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    # Layout: Name | Emp ID | Role | Region | Shift
+                    wn = c1.text_input("Worker Name")
+                    we = c2.text_input("EMP ID (Numbers Only)")
+                    wr = c3.text_input("Role/Position")
+                    wreg = c4.selectbox("Region", AREAS)
+                    
+                    # Fetch Shifts (Cached: 10s to reflect updates)
+                    shifts_ref = run_query("SELECT id, name FROM shifts", ttl=10)
+                    shift_opts = {s['name']: s['id'] for i, s in shifts_ref.iterrows()} if not shifts_ref.empty else {}
+                    wshift = c5.selectbox("Shift", list(shift_opts.keys()) if shift_opts else ["Default"])
+                    
+                    submitted = st.form_submit_button("Add Worker", use_container_width=True)
+                    if submitted:
+                        if wn and we:
+                            if not we.isdigit():
+                                st.error("EMP ID must be numbers only")
+                            else:
+                                sid = shift_opts.get(wshift, None)
+                                run_action("INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)", 
+                                           {"n":wn, "e":we, "r":wr, "reg":wreg, "sid":sid})
+                                st.toast("Worker Added Successfully!", icon="✅")
+                                time.sleep(1) # varied delay for UX
+                                st.rerun()
+                        else: st.error("Name and EMP ID required")
+            render_add_worker_form()
         
         
         # Bulk Add Workers
@@ -65,43 +68,48 @@ def manager_view_manpower():
             
             # Prepare empty template
             # Re-use shifts_ref from above or fetch again
+            shifts_ref = run_query("SELECT id, name FROM shifts", ttl=10)
+            shift_opts = {s['name']: s['id'] for i, s in shifts_ref.iterrows()} if not shifts_ref.empty else {}
             shift_names = list(shift_opts.keys())
             
             template_data = pd.DataFrame(columns=["Name", "EMP ID", "Role", "Region", "Shift"])
             
-            edited_bulk = st.data_editor(
-                template_data,
-                num_rows="dynamic",
-                key="bulk_worker_editor",
-                column_config={
-                    "Name": st.column_config.TextColumn(required=True),
-                    "EMP ID": st.column_config.TextColumn(required=True, validate="^[0-9]+$"),
-                    "Role": st.column_config.TextColumn(),
-                    "Region": st.column_config.SelectboxColumn(options=AREAS, required=True),
-                    "Shift": st.column_config.SelectboxColumn(options=shift_names)
-                },
-                hide_index=True, width="stretch"
-            )
-            
-            if st.button("💾 Save All Workers", use_container_width=True):
-                if edited_bulk.empty:
-                    st.warning("No data to save.")
-                else:
-                    batch_cmds = []
-                    valid = True
-                    for i, row in edited_bulk.iterrows():
-                        if not row['Name'] or not row['EMP ID']:
-                            st.error(f"Row {i+1}: Name and EMP ID are required."); valid = False; break
+            @st.fragment
+            def render_bulk_worker_add(init_df, shift_options):
+                edited_bulk = st.data_editor(
+                    init_df,
+                    num_rows="dynamic",
+                    key="bulk_worker_editor",
+                    column_config={
+                        "Name": st.column_config.TextColumn(required=True),
+                        "EMP ID": st.column_config.TextColumn(required=True, validate="^[0-9]+$"),
+                        "Role": st.column_config.TextColumn(),
+                        "Region": st.column_config.SelectboxColumn(options=AREAS, required=True),
+                        "Shift": st.column_config.SelectboxColumn(options=shift_options)
+                    },
+                    hide_index=True, width="stretch"
+                )
+                
+                if st.button("💾 Save All Workers", use_container_width=True):
+                    if edited_bulk.empty:
+                        st.warning("No data to save.")
+                    else:
+                        batch_cmds = []
+                        valid = True
+                        for i, row in edited_bulk.iterrows():
+                            if not row['Name'] or not row['EMP ID']:
+                                st.error(f"Row {i+1}: Name and EMP ID are required."); valid = False; break
+                            
+                            sid = shift_opts.get(row['Shift']) if row['Shift'] in shift_opts else None
+                            batch_cmds.append((
+                                "INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)",
+                                {"n": row['Name'], "e": row['EMP ID'], "r": row['Role'], "reg": row['Region'], "sid": sid}
+                            ))
                         
-                        sid = shift_opts.get(row['Shift']) if row['Shift'] in shift_opts else None
-                        batch_cmds.append((
-                            "INSERT INTO workers (name, emp_id, role, region, shift_id) VALUES (:n, :e, :r, :reg, :sid)",
-                            {"n": row['Name'], "e": row['EMP ID'], "r": row['Role'], "reg": row['Region'], "sid": sid}
-                        ))
-                    
-                    if valid:
-                        if run_batch_action(batch_cmds):
-                            st.balloons(); st.success(f"Successfully added {len(batch_cmds)} workers!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                        if valid:
+                            if run_batch_action(batch_cmds):
+                                st.balloons(); st.success(f"Successfully added {len(batch_cmds)} workers!"); time.sleep(1); st.rerun()
+            render_bulk_worker_add(template_data, shift_names)
 
         # Edit Workers
         if not workers.empty:
@@ -109,35 +117,38 @@ def manager_view_manpower():
             shifts_lookup = shift_opts
             shift_names_list = list(shifts_lookup.keys())
 
-            edited_w = st.data_editor(
-                workers,
-                key="worker_editor",
-                column_config={
-                    "id": st.column_config.NumberColumn(disabled=True),
-                    "created_at": st.column_config.DatetimeColumn(disabled=True),
-                    "shift_id": None, # Hide ID
-                    "shift_name": st.column_config.SelectboxColumn("Shift", options=shift_names_list, required=True),
-                    "emp_id": st.column_config.TextColumn("EMP ID", required=True),
-                    "status": st.column_config.SelectboxColumn(options=["Active", "Inactive"], required=True),
-                    "region": st.column_config.SelectboxColumn(options=AREAS, required=True)
-                },
-                hide_index=True, width="stretch"
-            )
-            if st.button("💾 Save Worker Changes"):
-                changes = 0
-                for index, row in edited_w.iterrows():
-                    # Basic validation
-                    eid = str(row['emp_id']) if row['emp_id'] else ""
-                    if eid and not eid.isdigit():
-                            st.error(f"Invalid EMP ID for {row['name']}: Numbers only."); continue
-                    
-                    # Resolve Shift ID
-                    new_sid = shifts_lookup.get(row['shift_name'])
-                    
-                    run_action("UPDATE workers SET name=:n, emp_id=:e, role=:r, region=:reg, status=:s, shift_id=:sid WHERE id=:id",
-                               {"n":row['name'], "e":eid, "r":row['role'], "reg":row['region'], "s":row['status'], "sid":new_sid, "id":row['id']})
-                    changes += 1
-                if changes > 0: st.success("Updated"); st.cache_data.clear(); time.sleep(1); st.rerun()
+            @st.fragment
+            def render_worker_edit(w_df, s_lookup, s_names_list):
+                edited_w = st.data_editor(
+                    w_df,
+                    key="worker_editor",
+                    column_config={
+                        "id": st.column_config.NumberColumn(disabled=True),
+                        "created_at": st.column_config.DatetimeColumn(disabled=True),
+                        "shift_id": None, # Hide ID
+                        "shift_name": st.column_config.SelectboxColumn("Shift", options=s_names_list, required=True),
+                        "emp_id": st.column_config.TextColumn("EMP ID", required=True),
+                        "status": st.column_config.SelectboxColumn(options=["Active", "Inactive"], required=True),
+                        "region": st.column_config.SelectboxColumn(options=AREAS, required=True)
+                    },
+                    hide_index=True, width="stretch"
+                )
+                if st.button("💾 Save Worker Changes"):
+                    changes = 0
+                    for index, row in edited_w.iterrows():
+                        # Basic validation
+                        eid = str(row['emp_id']) if row['emp_id'] else ""
+                        if eid and not eid.isdigit():
+                                st.error(f"Invalid EMP ID for {row['name']}: Numbers only."); continue
+                        
+                        # Resolve Shift ID
+                        new_sid = s_lookup.get(row['shift_name'])
+                        
+                        run_action("UPDATE workers SET name=:n, emp_id=:e, role=:r, region=:reg, status=:s, shift_id=:sid WHERE id=:id",
+                                   {"n":row['name'], "e":eid, "r":row['role'], "reg":row['region'], "s":row['status'], "sid":new_sid, "id":row['id']})
+                        changes += 1
+                    if changes > 0: st.success("Updated"); time.sleep(1); st.rerun()
+            render_worker_edit(workers, shifts_lookup, shift_names_list)
 
     with tab3: # Shifts
         st.subheader("⏰ Shift Management (Duty Roster)")
@@ -330,35 +341,38 @@ def supervisor_view_manpower():
             
             df_att = pd.DataFrame(display_data)
             
-            with st.form("attendance_form"):
-                edited_att = st.data_editor(
-                    df_att,
-                    # Key must change if shift changes to avoid stale data
-                    key=f"att_editor_{selected_region_mp}_{target_shift_id}",
-                    column_config={
-                        "ID": st.column_config.NumberColumn(disabled=True),
-                        "Name": st.column_config.TextColumn(disabled=True),
-                        "Role": st.column_config.TextColumn(disabled=True),
-                        "Status": st.column_config.SelectboxColumn(
-                            options=ATTENDANCE_STATUSES, required=True),
-                        "Notes": st.column_config.TextColumn()
-                    },
-                    hide_index=True, width="stretch"
-                )
-                
-                if st.form_submit_button("💾 Submit Attendance"):
-                    batch_cmds = []
-                    for i, row in edited_att.iterrows():
-                        # 1. Delete Existing using TARGET SHIFT ID (where the record belongs)
-                        batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
-                                           {"wid": row['ID'], "d": date_str, "sid": target_shift_id}))
-                        # 2. Insert New
-                        batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
-                                           {"wid": row['ID'], "d": date_str, "sid": target_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+            @st.fragment
+            def render_attendance_form(df_to_edit):
+                with st.form("attendance_form"):
+                    edited_att = st.data_editor(
+                        df_to_edit,
+                        # Key must change if shift changes to avoid stale data
+                        key=f"att_editor_{selected_region_mp}_{target_shift_id}",
+                        column_config={
+                            "ID": st.column_config.NumberColumn(disabled=True),
+                            "Name": st.column_config.TextColumn(disabled=True),
+                            "Role": st.column_config.TextColumn(disabled=True),
+                            "Status": st.column_config.SelectboxColumn(
+                                options=ATTENDANCE_STATUSES, required=True),
+                            "Notes": st.column_config.TextColumn()
+                        },
+                        hide_index=True, width="stretch"
+                    )
                     
-                    if run_batch_action(batch_cmds):
-                        st.toast(f"Attendance recorded for {len(edited_att)} workers on {date_str}!", icon="✅")
-                        st.cache_data.clear(); time.sleep(1); st.rerun()
+                    if st.form_submit_button("💾 Submit Attendance"):
+                        batch_cmds = []
+                        for i, row in edited_att.iterrows():
+                            # 1. Delete Existing using TARGET SHIFT ID (where the record belongs)
+                            batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
+                                               {"wid": row['ID'], "d": date_str, "sid": target_shift_id}))
+                            # 2. Insert New
+                            batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
+                                               {"wid": row['ID'], "d": date_str, "sid": target_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+                        
+                        if run_batch_action(batch_cmds):
+                            st.toast(f"Attendance recorded for {len(edited_att)} workers on {date_str}!", icon="✅")
+                            time.sleep(1); st.rerun()
+            render_attendance_form(df_att)
 
     with tab2:
         st.dataframe(run_query("SELECT * FROM workers WHERE region = :r", {"r": selected_region_mp}), width="stretch")

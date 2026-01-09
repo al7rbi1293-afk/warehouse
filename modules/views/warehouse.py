@@ -103,13 +103,22 @@ def manager_view_warehouse():
         reqs = run_query("SELECT req_id, request_date, region, supervisor_name, item_name, qty, unit, notes FROM requests WHERE status='Pending' ORDER BY region, request_date DESC", ttl=0)
         if reqs.empty: st.info("No pending requests")
         else:
-            regions = reqs['region'].unique()
-            region_tabs = st.tabs(list(regions))
-            for i, region in enumerate(regions):
+                            
+                            if batch_cmds:
+                                if run_batch_action(batch_cmds):
+                                    st.success(f"Processed {count_changes} requests!"); time.sleep(1); st.rerun()
+                                else:
+                                    st.error("Failed to process changes. Please try again.")
+
+    @st.fragment
+    def render_manager_bulk_review(requests_df):
+         regions = requests_df['region'].unique()
+         region_tabs = st.tabs(list(regions))
+         for i, region in enumerate(regions):
                 with region_tabs[i]:
                     st.markdown("##### ⚡ Global Actions")
                     bulk_action = st.radio(f"Apply to {region}:", ["Maintain Status", "Approve All", "Reject All"], key=f"bulk_{region}", horizontal=True)
-                    reg_df = reqs[reqs['region'] == region].copy()
+                    reg_df = requests_df[requests_df['region'] == region].copy()
                     if bulk_action == "Approve All": reg_df['Action'] = "Approve"
                     elif bulk_action == "Reject All": reg_df['Action'] = "Reject"
                     else: reg_df['Action'] = "Keep Pending"
@@ -138,11 +147,8 @@ def manager_view_warehouse():
                             count_changes = 0
                             
                             # Pre-fetch inventory to avoid queries in loop
-                            # Get all inventory items involved in this batch
                             inv_items = edited_df['item_name'].unique().tolist()
                             if inv_items:
-                                # Build a safe query with IN clause or fetch all
-                                # Fetching all NTCC inventory is safer/easier if list is small, or use parameterized IN
                                 stock_data = run_query("SELECT name_en, qty FROM inventory WHERE location='NTCC'", ttl=0)
                                 stock_map = {row['name_en']: row['qty'] for _, row in stock_data.iterrows()}
                             else:
@@ -177,6 +183,9 @@ def manager_view_warehouse():
                                     st.success(f"Processed {count_changes} requests!"); time.sleep(1); st.rerun()
                                 else:
                                     st.error("Failed to process changes. Please try again.")
+    
+    if reqs.empty: st.info("No pending requests")
+    else: render_manager_bulk_review(reqs)
 
     elif view_option == txt['local_inv']: # Local Inventory
         st.subheader("📊 Branch Inventory (By Area)")
@@ -211,13 +220,18 @@ def storekeeper_view():
         reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=0)
         if reqs.empty: st.info("No tasks")
         else:
-            regions = reqs['region'].unique()
+                                    else:
+                                        st.error("Transaction failed.")
+
+    @st.fragment
+    def render_storekeeper_bulk_issue(reqs_df):
+            regions = reqs_df['region'].unique()
             if len(regions) > 0:
                 rtabs = st.tabs(list(regions))
                 for i, region in enumerate(regions):
                     with rtabs[i]:
                         select_all = st.checkbox(f"Select All ({region})", key=f"sel_all_{region}")
-                        sk_df = reqs[reqs['region'] == region].copy()
+                        sk_df = reqs_df[reqs_df['region'] == region].copy()
                         sk_df['Final Issue Qty'] = sk_df['qty']
                         sk_df['SK Note'] = ""
                         sk_df['Ready to Issue'] = select_all
@@ -242,10 +256,6 @@ def storekeeper_view():
                                 batch_cmds = []
                                 issued_count = 0
                                 
-                                # Prepare logic:
-                                # 1. We need to decrease stock from NTCC (using update_central_stock logic but manual SQL to batch it)
-                                # 2. Update request status
-                                
                                 for index, row in edited_sk.iterrows():
                                     if row['Ready to Issue']:
                                         rid = row['req_id']
@@ -256,9 +266,6 @@ def storekeeper_view():
                                         item = row['item_name']
                                         unit = row['unit']
                                         
-                                        # Add Stock Decrease to batch (Manual SQL construction here for performance)
-                                        # Logic from update_central_stock(item, "NTCC", -iq, user, desc, unit)
-                                        # We do simple UPDATE and INSERT LOG
                                         batch_cmds.append((
                                             "UPDATE inventory SET qty = qty - :q, last_updated=NOW() WHERE name_en=:n AND location='NTCC'",
                                             {"q": iq, "n": item}
@@ -268,7 +275,6 @@ def storekeeper_view():
                                             {"n": item, "c": -iq, "u": st.session_state.user_info['name'], "t": f"Issued {region}", "un": unit, "q": iq}
                                         ))
                                         
-                                        # Add Request Update to batch
                                         batch_cmds.append((
                                             "UPDATE requests SET status='Issued', qty=:q, notes=:n WHERE req_id=:id",
                                             {"q":iq, "n":final_note, "id":rid}
@@ -280,6 +286,9 @@ def storekeeper_view():
                                         st.success(f"Issued {issued_count} items!"); time.sleep(1); st.rerun()
                                     else:
                                         st.error("Transaction failed.")
+    
+    if reqs.empty: st.info("No tasks")
+    else: render_storekeeper_bulk_issue(reqs)
 
     elif view_option == "📋 Issued Today": # Issued Today
         st.subheader("📋 Items Issued Today")
@@ -316,30 +325,33 @@ def supervisor_view_warehouse():
             inv_df['Order Qty'] = 0 
             st.info(f"Ordering for: {selected_region_wh}")
             
-            with st.form(key=f"order_form_{selected_region_wh}"):
-                edited_order = st.data_editor(
-                    inv_df, key=f"order_editor_{selected_region_wh}",
-                    column_config={
-                        "Item Name": st.column_config.TextColumn(disabled=True),
-                        "category": st.column_config.TextColumn(disabled=True),
-                        "unit": st.column_config.TextColumn(disabled=True),
-                        "Order Qty": st.column_config.NumberColumn(min_value=0, max_value=1000, step=1)
-                    },
-                    hide_index=True, width="stretch", height=400
-                )
-                if st.form_submit_button(txt['send_req']):
-                    items_to_order = edited_order[edited_order['Order Qty'] > 0]
-                    if items_to_order.empty: st.warning("Please enter quantity for at least one item.")
-                    else:
-                        batch_cmds = []
-                        for index, row in items_to_order.iterrows():
-                            batch_cmds.append((
-                                "INSERT INTO requests (supervisor_name, region, item_name, category, qty, unit, status, request_date) VALUES (:s, :r, :i, :c, :q, :u, 'Pending', NOW())",
-                                {"s": user['name'], "r": selected_region_wh, "i": row['Item Name'], "c": row['category'], "q": int(row['Order Qty']), "u": row['unit']}
-                            ))
-                        
-                        if run_batch_action(batch_cmds):
-                            st.balloons(); st.success(f"Sent {len(items_to_order)} requests for {selected_region_wh}!"); time.sleep(2); st.rerun()
+            @st.fragment
+            def render_supervisor_order_form(inv_df):
+                with st.form(key=f"order_form_{selected_region_wh}"):
+                    edited_order = st.data_editor(
+                        inv_df, key=f"order_editor_{selected_region_wh}",
+                        column_config={
+                            "Item Name": st.column_config.TextColumn(disabled=True),
+                            "category": st.column_config.TextColumn(disabled=True),
+                            "unit": st.column_config.TextColumn(disabled=True),
+                            "Order Qty": st.column_config.NumberColumn(min_value=0, max_value=1000, step=1)
+                        },
+                        hide_index=True, width="stretch", height=400
+                    )
+                    if st.form_submit_button(txt['send_req']):
+                        items_to_order = edited_order[edited_order['Order Qty'] > 0]
+                        if items_to_order.empty: st.warning("Please enter quantity for at least one item.")
+                        else:
+                            batch_cmds = []
+                            for index, row in items_to_order.iterrows():
+                                batch_cmds.append((
+                                    "INSERT INTO requests (supervisor_name, region, item_name, category, qty, unit, status, request_date) VALUES (:s, :r, :i, :c, :q, :u, 'Pending', NOW())",
+                                    {"s": user['name'], "r": selected_region_wh, "i": row['Item Name'], "c": row['category'], "q": int(row['Order Qty']), "u": row['unit']}
+                                ))
+                            
+                            if run_batch_action(batch_cmds):
+                                st.balloons(); st.success(f"Sent {len(items_to_order)} requests for {selected_region_wh}!"); time.sleep(2); st.rerun()
+            render_supervisor_order_form(inv_df)
 
     elif view_option == "🚚 Ready for Pickup": # Ready for Pickup
         # Filter by region as well
@@ -351,62 +363,48 @@ def supervisor_view_warehouse():
             ready_df = ready[['req_id', 'item_name', 'qty', 'unit', 'notes']].copy()
             ready_df['Confirm'] = pickup_all
             
-            with st.form(key=f"rec_form_{selected_region_wh}"):
-                edited_ready = st.data_editor(
-                    ready_df,
-                    key=f"ready_editor_{selected_region_wh}",
-                    column_config={
-                        "req_id": None, "item_name": st.column_config.TextColumn(disabled=True),
-                        "Confirm": st.column_config.CheckboxColumn("Received?", default=False)
-                    },
-                    hide_index=True, width="stretch"
-                )
-                
-                if st.form_submit_button(f"Confirm Receipt for {selected_region_wh}"):
-                    batch_cmds = []
-                    rec_count = 0
+            @st.fragment
+            def render_supervisor_pickup_form(ready_df):
+                with st.form(key=f"rec_form_{selected_region_wh}"):
+                    edited_ready = st.data_editor(
+                        ready_df,
+                        key=f"ready_editor_{selected_region_wh}",
+                        column_config={
+                            "req_id": None, "item_name": st.column_config.TextColumn(disabled=True),
+                            "Confirm": st.column_config.CheckboxColumn("Received?", default=False)
+                        },
+                        hide_index=True, width="stretch"
+                    )
                     
-                    # Fetch current local inventory for this region to construct updates
-                    # OR use UPSERT (Insert on conflict update) if supported by DB (Postgres supports it)
-                    # For simplicity/safety, we'll assume item exists or we insert it. 
-                    # Faster: Just run UPSERTs in batch.
-                    
-                    for index, row in edited_ready.iterrows():
-                        if row['Confirm']:
-                            rid = row['req_id']
-                            item = row['item_name']
-                            qty = int(row['qty'])
-                            
-                            # 1. Update Request
-                            batch_cmds.append(("UPDATE requests SET status='Received' WHERE req_id=:id", {"id":rid}))
-                            
-                            # 2. Upsert Local Inventory
-                            # Postgres Upsert syntax: INSERT ... ON CONFLICT (name_en, region) DO UPDATE SET ...
-                            # Assuming table has unique constraint on (region, item_name)
-                            # If not, we might fail or duplicate. Let's start with standard UPDATE/INSERT logic inside batch? 
-                            # SQLAlchmey text() allows complex scripts but standard SQL is better.
-                            # Let's rely on `local_inventory` having a constraint or index.
-                            # If no constraint, we might need PL/SQL or multiple queries.
-                            # SAFE WAY: "INSERT INTO ... ON CONFLICT (item_name, region) DO UPDATE SET qty = local_inventory.qty + :q, last_updated=NOW(), updated_by=:u"
-                            # We need to make sure `local_inventory` has that constraint. 
-                            # If we are unsure, we can try to update, if rowcount=0, insert. 
-                            # But session.execute returns resultProxy.
-                            
-                            # Let's use the explicit UPSERT which is standard in Postgres 9.5+
-                            upsert_sql = """
-                            INSERT INTO local_inventory (region, item_name, qty, last_updated, updated_by) 
-                            VALUES (:r, :i, :q, NOW(), :u)
-                            ON CONFLICT (region, item_name) 
-                            DO UPDATE SET qty = local_inventory.qty + :q, last_updated=NOW(), updated_by=:u;
-                            """
-                            batch_cmds.append((upsert_sql, {"r":selected_region_wh, "i":item, "q":qty, "u":user['name']}))
-                            
-                            rec_count += 1
-                            
-                    if rec_count > 0:
-                         if run_batch_action(batch_cmds):
-                            st.balloons(); st.success(f"Received {rec_count} items."); time.sleep(1); st.rerun()
-                         else: st.error("Failed to process receipt.")
+                    if st.form_submit_button(f"Confirm Receipt for {selected_region_wh}"):
+                        batch_cmds = []
+                        rec_count = 0
+                        
+                        for index, row in edited_ready.iterrows():
+                            if row['Confirm']:
+                                rid = row['req_id']
+                                item = row['item_name']
+                                qty = int(row['qty'])
+                                
+                                # 1. Update Request
+                                batch_cmds.append(("UPDATE requests SET status='Received' WHERE req_id=:id", {"id":rid}))
+                                
+                                # 2. Upsert Local Inventory
+                                upsert_sql = """
+                                INSERT INTO local_inventory (region, item_name, qty, last_updated, updated_by) 
+                                VALUES (:r, :i, :q, NOW(), :u)
+                                ON CONFLICT (region, item_name) 
+                                DO UPDATE SET qty = local_inventory.qty + :q, last_updated=NOW(), updated_by=:u;
+                                """
+                                batch_cmds.append((upsert_sql, {"r":selected_region_wh, "i":item, "q":qty, "u":user['name']}))
+                                
+                                rec_count += 1
+                                
+                        if rec_count > 0:
+                             if run_batch_action(batch_cmds):
+                                st.balloons(); st.success(f"Received {rec_count} items."); time.sleep(1); st.rerun()
+                             else: st.error("Failed to process receipt.")
+            render_supervisor_pickup_form(ready_df)
 
     elif view_option == "⏳ My Pending": # Edit Pending
         pending = run_query("SELECT req_id, item_name, qty, unit, request_date FROM requests WHERE supervisor_name=:s AND status='Pending' AND region=:r ORDER BY request_date DESC", 
@@ -420,30 +418,31 @@ def supervisor_view_warehouse():
             if sup_action == "Cancel All": pending_df['Action'] = "Cancel"
             else: pending_df['Action'] = "Keep"
             
-            with st.form(key=f"pending_form_{selected_region_wh}"):
-                edited_pending = st.data_editor(
-                    pending_df,
-                    key=f"sup_pending_edit_{selected_region_wh}",
-                    column_config={
-                        "req_id": None, "item_name": st.column_config.TextColumn(disabled=True),
-                        "Modify Qty": st.column_config.NumberColumn(min_value=1),
-                        "Action": st.column_config.SelectboxColumn(options=["Keep", "Update", "Cancel"])
-                    },
-                    hide_index=True, width="stretch"
-                )
-                if st.form_submit_button("Apply Changes"):
-                    p_changes = 0
-                    for index, row in edited_pending.iterrows():
-                        rid = row['req_id']
-                        if row['Action'] == "Update":
-                            # update_request(rid, int(row['Modify Qty'])) # This function was missing in original context but update_request_details exists.
-                            # Assuming update_request_details usage
-                            update_request_details(rid, int(row['Modify Qty']), None)
-                            p_changes += 1
-                        elif row['Action'] == "Cancel":
-                            delete_request(rid)
-                            p_changes += 1
-                    if p_changes > 0: st.success(f"Applied changes."); time.sleep(1); st.rerun()
+            @st.fragment
+            def render_supervisor_pending_edit(pending_df):
+                with st.form(key=f"pending_form_{selected_region_wh}"):
+                    edited_pending = st.data_editor(
+                        pending_df,
+                        key=f"sup_pending_edit_{selected_region_wh}",
+                        column_config={
+                            "req_id": None, "item_name": st.column_config.TextColumn(disabled=True),
+                            "Modify Qty": st.column_config.NumberColumn(min_value=1),
+                            "Action": st.column_config.SelectboxColumn(options=["Keep", "Update", "Cancel"])
+                        },
+                        hide_index=True, width="stretch"
+                    )
+                    if st.form_submit_button("Apply Changes"):
+                        p_changes = 0
+                        for index, row in edited_pending.iterrows():
+                            rid = row['req_id']
+                            if row['Action'] == "Update":
+                                update_request_details(rid, int(row['Modify Qty']), None)
+                                p_changes += 1
+                            elif row['Action'] == "Cancel":
+                                delete_request(rid)
+                                p_changes += 1
+                        if p_changes > 0: st.success(f"Applied changes."); time.sleep(1); st.rerun()
+            render_supervisor_pending_edit(pending_df)
 
     elif view_option == txt['local_inv']: # Local Inventory
         st.info(f"Update Local Inventory for {selected_region_wh}")
@@ -456,25 +455,28 @@ def supervisor_view_warehouse():
             local_inv_df.rename(columns={'qty': 'System Count', 'item_name': 'Item Name'}, inplace=True)
             local_inv_df['Physical Count'] = local_inv_df['System Count']
             
-            with st.form(key=f"stock_form_{selected_region_wh}"):
-                edited_local = st.data_editor(
-                    local_inv_df,
-                    key=f"sup_stock_take_{selected_region_wh}",
-                    column_config={
-                        "Item Name": st.column_config.TextColumn(disabled=True),
-                        "System Count": st.column_config.NumberColumn(disabled=True),
-                        "Physical Count": st.column_config.NumberColumn(min_value=0, max_value=10000, required=True)
-                    },
-                    hide_index=True, width="stretch"
-                )
-                
-                if st.form_submit_button(f"Update {selected_region_wh} Counts"):
-                    up_count = 0
-                    for index, row in edited_local.iterrows():
-                        sys = int(row['System Count'])
-                        phy = int(row['Physical Count'])
-                        if sys != phy:
-                            update_local_inventory(selected_region_wh, row['Item Name'], phy, user['name'])
-                            up_count += 1
-                    if up_count > 0: st.success(f"Updated {up_count} items."); time.sleep(1); st.rerun()
-                    else: st.info("No changes made.")
+            @st.fragment
+            def render_supervisor_local_inventory(local_inv_df):
+                with st.form(key=f"stock_form_{selected_region_wh}"):
+                    edited_local = st.data_editor(
+                        local_inv_df,
+                        key=f"sup_stock_take_{selected_region_wh}",
+                        column_config={
+                            "Item Name": st.column_config.TextColumn(disabled=True),
+                            "System Count": st.column_config.NumberColumn(disabled=True),
+                            "Physical Count": st.column_config.NumberColumn(min_value=0, max_value=10000, required=True)
+                        },
+                        hide_index=True, width="stretch"
+                    )
+                    
+                    if st.form_submit_button(f"Update {selected_region_wh} Counts"):
+                        up_count = 0
+                        for index, row in edited_local.iterrows():
+                            sys = int(row['System Count'])
+                            phy = int(row['Physical Count'])
+                            if sys != phy:
+                                update_local_inventory(selected_region_wh, row['Item Name'], phy, user['name'])
+                                up_count += 1
+                        if up_count > 0: st.success(f"Updated {up_count} items."); time.sleep(1); st.rerun()
+                        else: st.info("No changes made.")
+            render_supervisor_local_inventory(local_inv_df)
