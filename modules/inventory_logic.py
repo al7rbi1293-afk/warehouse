@@ -20,6 +20,7 @@ def update_central_stock(item_name, location, change, user, action_desc, unit):
             s.execute(text("INSERT INTO stock_logs (log_date, action_by, action_type, item_name, location, change_amount, new_qty, unit) VALUES (NOW(), :u, :act, :item, :loc, :chg, :nq, :unit)"),
                       {"u": user, "act": action_desc, "item": item_name, "loc": location, "chg": change, "nq": new_qty, "unit": unit})
             s.commit()
+            st.cache_data.clear() # Manually clear cache since we used raw session
         return True, "Success"
     except Exception as e: return False, str(e)
 
