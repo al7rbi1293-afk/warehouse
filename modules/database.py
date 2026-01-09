@@ -94,4 +94,8 @@ def init_db():
         run_action("CREATE INDEX IF NOT EXISTS idx_workers_reg ON workers(region);")
         run_action("CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(date);")
         run_action("CREATE INDEX IF NOT EXISTS idx_req_stat ON requests(status);")
+        
+        # Support for Batch Upsert in Warehouse
+        run_action("CREATE TABLE IF NOT EXISTS local_inventory (region TEXT, item_name TEXT, qty INTEGER, last_updated TIMESTAMP, updated_by TEXT);")
+        run_action("CREATE UNIQUE INDEX IF NOT EXISTS idx_local_inv_uniq ON local_inventory (region, item_name);")
     except: pass
