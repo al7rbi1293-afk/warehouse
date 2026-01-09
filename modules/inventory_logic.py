@@ -6,7 +6,7 @@ from modules.database import run_query, run_action, conn
 
 def get_inventory(location):
     # Optimization: Cache inventory for short duration (10s) to balance freshness and speed
-    return run_query("SELECT * FROM inventory WHERE location = :loc ORDER BY name_en", params={"loc": location}, ttl=10)
+    return run_query("SELECT * FROM inventory WHERE location = :loc ORDER BY name_en", params={"loc": location}, ttl=0)
 
 def update_central_stock(item_name, location, change, user, action_desc, unit):
     change = int(change)

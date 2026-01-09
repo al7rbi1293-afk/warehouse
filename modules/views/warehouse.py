@@ -15,9 +15,9 @@ from modules.views.common import render_bulk_stock_take
 # ==========================================
 def manager_view_warehouse():
     st.header(txt['manager_role'])
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📦 Stock Management", txt['ext_tab'], "⏳ Bulk Review", txt['local_inv'], "📜 Logs"])
+    view_option = st.radio("Navigate", ["📦 Stock Management", txt['ext_tab'], "⏳ Bulk Review", txt['local_inv'], "📜 Logs"], horizontal=True, label_visibility="collapsed")
     
-    with tab1: # Stock
+    if view_option == "📦 Stock Management": # Stock
         with st.expander(txt['create_item_title'], expanded=False):
             with st.form("create_item_form", clear_on_submit=True):
                 c1, c2, c3, c4 = st.columns(4)
@@ -31,14 +31,14 @@ def manager_view_warehouse():
                         run_action("INSERT INTO inventory (name_en, category, unit, location, qty, status) VALUES (:n, :c, :u, :l, :q, 'Available')",
                                   {"n":n, "c":c, "u":u, "l":l, "q":int(q)})
                         st.toast("Item Added Successfully!", icon="📦")
-                        st.cache_data.clear(); st.rerun()
+                        st.rerun()
                     else: st.error("Exists")
         st.divider()
         col_ntcc, col_snc = st.columns(2)
         with col_ntcc: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "mgr")
         with col_snc: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "mgr")
 
-    with tab2: # External
+    elif view_option == txt['ext_tab']: # External
         c1, c2 = st.columns(2)
         with c1:
             st.subheader(txt['project_loans'])
@@ -64,7 +64,7 @@ def manager_view_warehouse():
                                 res, msg = update_central_stock(it, wh, change, st.session_state.user_info['name'], desc, row['unit'])
                                 if res: 
                                     st.toast("Transaction Successful!", icon="🎉")
-                                    st.cache_data.clear(); st.rerun()
+                                    st.rerun()
                                 else: st.error(msg)
                             else: st.error("Item selection invalid. Please refresh.")
                     else:
@@ -86,7 +86,7 @@ def manager_view_warehouse():
                             if not item_rows.empty:
                                 row = item_rows.iloc[0]
                                 res, msg = update_central_stock(it, dest, amt, st.session_state.user_info['name'], "From CWW", row['unit'])
-                                if res: st.success("Done"); st.cache_data.clear(); st.rerun()
+                                if res: st.success("Done"); st.rerun()
                                 else: st.error(msg)
                             else: st.error("Item selection invalid.")
                     else:
@@ -98,9 +98,9 @@ def manager_view_warehouse():
             st.dataframe(loan_logs, width="stretch")
             st.download_button("📥 Export Loan Logs", convert_df_to_excel(loan_logs, "Loans"), "loan_logs.xlsx")
 
-    with tab3: # Requests
+    elif view_option == "⏳ Bulk Review": # Requests
         # Cache this query for 10s to avoid instant flicker but reduce load
-        reqs = run_query("SELECT req_id, request_date, region, supervisor_name, item_name, qty, unit, notes FROM requests WHERE status='Pending' ORDER BY region, request_date DESC", ttl=10)
+        reqs = run_query("SELECT req_id, request_date, region, supervisor_name, item_name, qty, unit, notes FROM requests WHERE status='Pending' ORDER BY region, request_date DESC", ttl=0)
         if reqs.empty: st.info("No pending requests")
         else:
             regions = reqs['region'].unique()
@@ -174,24 +174,27 @@ def manager_view_warehouse():
                             
                             if batch_cmds:
                                 if run_batch_action(batch_cmds):
-                                    st.success(f"Processed {count_changes} requests!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                                    st.success(f"Processed {count_changes} requests!"); time.sleep(1); st.rerun()
                                 else:
                                     st.error("Failed to process changes. Please try again.")
 
-    with tab4: # Local Inventory
+    elif view_option == txt['local_inv']: # Local Inventory
         st.subheader("📊 Branch Inventory (By Area)")
+        # Optimization: Fetch ALL local inventory in one query
+        all_local = run_query("SELECT region, item_name, qty, last_updated, updated_by FROM local_inventory ORDER BY region, item_name", ttl=0)
+        
         m_tabs = st.tabs(AREAS)
         for i, area in enumerate(AREAS):
             with m_tabs[i]:
-                df = run_query("SELECT item_name, qty, last_updated, updated_by FROM local_inventory WHERE region=:r ORDER BY item_name", {"r":area})
+                df = all_local[all_local['region'] == area] if not all_local.empty else pd.DataFrame()
                 if df.empty:
                     st.info(f"No inventory record for {area}")
                 else:
                     st.dataframe(df, width="stretch")
                     st.download_button(f"📥 Export {area} Inv", convert_df_to_excel(df, area), f"{area}_inv.xlsx", key=f"dl_loc_{area}")
 
-    with tab5: # Logs
-        logs = run_query("SELECT * FROM stock_logs ORDER BY log_date DESC LIMIT 500")
+    elif view_option == "📜 Logs": # Logs
+        logs = run_query("SELECT * FROM stock_logs ORDER BY log_date DESC LIMIT 500", ttl=0)
         st.dataframe(logs, width="stretch")
         if not logs.empty:
             st.download_button("📥 Export Stock Logs", convert_df_to_excel(logs, "StockLogs"), "stock_logs.xlsx")
@@ -202,10 +205,10 @@ def manager_view_warehouse():
 def storekeeper_view():
     st.header(txt['storekeeper_role'])
     st.caption("Manage requests and inventory")
-    tab_approved, tab_issued, tab_ntcc, tab_snc = st.tabs([txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"])
+    view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
     
-    with tab_approved: # Bulk Issue
-        reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=10)
+    if view_option == txt['approved_reqs']: # Bulk Issue
+        reqs = run_query("SELECT * FROM requests WHERE status='Approved'", ttl=0)
         if reqs.empty: st.info("No tasks")
         else:
             regions = reqs['region'].unique()
@@ -274,18 +277,20 @@ def storekeeper_view():
                                         
                                 if issued_count > 0:
                                     if run_batch_action(batch_cmds):
-                                        st.success(f"Issued {issued_count} items!"); st.cache_data.clear(); time.sleep(1); st.rerun()
+                                        st.success(f"Issued {issued_count} items!"); time.sleep(1); st.rerun()
                                     else:
                                         st.error("Transaction failed.")
 
-    with tab_issued: # Issued Today
+    elif view_option == "📋 Issued Today": # Issued Today
         st.subheader("📋 Items Issued Today")
-        today_log = run_query("""SELECT item_name, qty, unit, region, supervisor_name, notes, request_date FROM requests WHERE status IN ('Issued', 'Received') AND request_date::date = CURRENT_DATE ORDER BY request_date DESC""")
+        today_log = run_query("""SELECT item_name, qty, unit, region, supervisor_name, notes, request_date FROM requests WHERE status IN ('Issued', 'Received') AND request_date::date = CURRENT_DATE ORDER BY request_date DESC""", ttl=0)
         if today_log.empty: st.info("Nothing issued today yet.")
         else: st.dataframe(today_log, width="stretch")
 
-    with tab_ntcc: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "sk")
-    with tab_snc: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "sk")
+    elif view_option == "NTCC Stock Take":
+        render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "sk")
+    elif view_option == "SNC Stock Take":
+        render_bulk_stock_take("SNC", st.session_state.user_info['name'], "sk")
 
 # ==========================================
 # ============ SUPERVISOR VIEW (WH) ========
@@ -299,9 +304,9 @@ def supervisor_view_warehouse():
     
     selected_region_wh = st.selectbox("📂 Select Active Region", my_regions, key="sup_wh_reg_sel")
     
-    t1, t2, t3, t4 = st.tabs([txt['req_form'], "🚚 Ready for Pickup", "⏳ My Pending", txt['local_inv']])
+    view_option = st.radio("Navigate", [txt['req_form'], "🚚 Ready for Pickup", "⏳ My Pending", txt['local_inv']], horizontal=True, label_visibility="collapsed")
     
-    with t1: # Bulk Request
+    if view_option == txt['req_form']: # Bulk Request
         st.markdown(f"### 🛒 Bulk Order Form ({selected_region_wh})")
         
         inv = get_inventory("NTCC")
@@ -334,11 +339,11 @@ def supervisor_view_warehouse():
                             ))
                         
                         if run_batch_action(batch_cmds):
-                            st.balloons(); st.success(f"Sent {len(items_to_order)} requests for {selected_region_wh}!"); st.cache_data.clear(); time.sleep(2); st.rerun()
+                            st.balloons(); st.success(f"Sent {len(items_to_order)} requests for {selected_region_wh}!"); time.sleep(2); st.rerun()
 
-    with t2: # Ready for Pickup
+    elif view_option == "🚚 Ready for Pickup": # Ready for Pickup
         # Filter by region as well
-        ready = run_query("SELECT * FROM requests WHERE supervisor_name=:s AND status='Issued' AND region=:r", {"s": user['name'], "r": selected_region_wh})
+        ready = run_query("SELECT * FROM requests WHERE supervisor_name=:s AND status='Issued' AND region=:r", {"s": user['name'], "r": selected_region_wh}, ttl=0)
         if ready.empty: st.info(f"No items ready for pickup in {selected_region_wh}.")
         else:
              # Just show the list for this region
@@ -400,12 +405,12 @@ def supervisor_view_warehouse():
                             
                     if rec_count > 0:
                          if run_batch_action(batch_cmds):
-                            st.balloons(); st.success(f"Received {rec_count} items."); st.cache_data.clear(); time.sleep(1); st.rerun()
+                            st.balloons(); st.success(f"Received {rec_count} items."); time.sleep(1); st.rerun()
                          else: st.error("Failed to process receipt.")
 
-    with t3: # Edit Pending
+    elif view_option == "⏳ My Pending": # Edit Pending
         pending = run_query("SELECT req_id, item_name, qty, unit, request_date FROM requests WHERE supervisor_name=:s AND status='Pending' AND region=:r ORDER BY request_date DESC", 
-                            {"s": user['name'], "r": selected_region_wh})
+                            {"s": user['name'], "r": selected_region_wh}, ttl=0)
         if pending.empty: st.info(f"No pending requests for {selected_region_wh}.")
         else:
             # Same logic but filtered
@@ -438,11 +443,11 @@ def supervisor_view_warehouse():
                         elif row['Action'] == "Cancel":
                             delete_request(rid)
                             p_changes += 1
-                    if p_changes > 0: st.success(f"Applied changes."); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    if p_changes > 0: st.success(f"Applied changes."); time.sleep(1); st.rerun()
 
-    with t4: # Local Inventory
+    elif view_option == txt['local_inv']: # Local Inventory
         st.info(f"Update Local Inventory for {selected_region_wh}")
-        local_inv = run_query("SELECT item_name, qty FROM local_inventory WHERE region=:r AND updated_by=:u", {"r":selected_region_wh, "u":user['name']})
+        local_inv = run_query("SELECT item_name, qty FROM local_inventory WHERE region=:r AND updated_by=:u", {"r":selected_region_wh, "u":user['name']}, ttl=0)
         
         if local_inv.empty:
             st.warning(f"No inventory record found for {selected_region_wh}.")
@@ -471,5 +476,5 @@ def supervisor_view_warehouse():
                         if sys != phy:
                             update_local_inventory(selected_region_wh, row['Item Name'], phy, user['name'])
                             up_count += 1
-                    if up_count > 0: st.success(f"Updated {up_count} items."); st.cache_data.clear(); time.sleep(1); st.rerun()
+                    if up_count > 0: st.success(f"Updated {up_count} items."); time.sleep(1); st.rerun()
                     else: st.info("No changes made.")

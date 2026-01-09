@@ -42,6 +42,6 @@ def render_bulk_stock_take(location, user_name, key_prefix):
         
         if changes_count > 0:
             st.toast(f"✅ Updated {changes_count} items in {location}!")
-            st.cache_data.clear(); time.sleep(1); st.rerun()
+            time.sleep(1); st.rerun()
         else:
             st.info("No changes detected.")
