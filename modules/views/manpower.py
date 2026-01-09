@@ -276,10 +276,6 @@ def supervisor_view_manpower():
         st.subheader(f"📅 Attendance for {date_str} - {selected_region_mp}")
 
         # AUTO-DETECT SHIFT from Supervisor Profile
-        # We assume the Supervisor is logged in and their shift_id is in user_info (added in auth.py)
-        # If user_info doesn't have it (legacy session), we default or ask.
-        # Ideally, we should trust the user profile.
-        
         my_shift_id = user.get('shift_id')
         my_shift_name = user.get('shift_name', 'Unknown')
         
@@ -287,17 +283,40 @@ def supervisor_view_manpower():
             st.error("You are not assigned to a Shift. Please contact Manager.")
             return
 
-        st.info(f"Taking Attendance for: **{my_shift_name}** Shift")
+        # --- SHIFT MAPPING LOGIC ---
+        # A or A2 Supervisors -> Attend A1 Workers
+        # B or B2 Supervisors -> Attend B1 Workers
+        # Default: Attend own shift (e.g. A1 calls A1, B1 calls B1)
         
-        # 1. Get Workers in Region AND Shift
+        target_shift_name = my_shift_name
+        
+        # We need ALL shifts to resolve names to IDs
+        all_shifts = run_query("SELECT id, name FROM shifts")
+        shift_map = {row['name']: row['id'] for _, row in all_shifts.iterrows()}
+        
+        # Apply Mapping
+        if my_shift_name in ['A', 'A2']:
+            target_shift_name = 'A1'
+        elif my_shift_name in ['B', 'B2']:
+            target_shift_name = 'B1'
+            
+        target_shift_id = shift_map.get(target_shift_name)
+        
+        if not target_shift_id:
+             st.error(f"Target Shift '{target_shift_name}' not found in database. Please ask Manager to create it.")
+             return
+
+        st.info(f"Supervisor Shift: **{my_shift_name}** → Taking Attendance for: **{target_shift_name}** Workers")
+        
+        # 1. Get Workers in Region AND Target Shift
         workers = run_query("SELECT id, name, role, status FROM workers WHERE region = :r AND shift_id = :sid AND status = 'Active' ORDER BY name", 
-                            params={"r": selected_region_mp, "sid": my_shift_id}, ttl=60)
+                            params={"r": selected_region_mp, "sid": target_shift_id}, ttl=60)
         
         if workers.empty:
-            st.info(f"No active workers found in {selected_region_mp} for {my_shift_name} Shift.")
+            st.info(f"No active workers found in {selected_region_mp} for {target_shift_name} Shift.")
         else:
-            # Fetch existing attendance for the SELECTED date and SHIFT
-            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": date_str, "s": my_shift_id})
+            # Fetch existing attendance for the SELECTED date and TARGET SHIFT
+            existing = run_query("SELECT worker_id, status, notes FROM attendance WHERE date = :d AND shift_id = :s", {"d": date_str, "s": target_shift_id})
             
             display_data = []
             for i, w in workers.iterrows():
@@ -314,7 +333,8 @@ def supervisor_view_manpower():
             with st.form("attendance_form"):
                 edited_att = st.data_editor(
                     df_att,
-                    key=f"att_editor_{selected_region_mp}_{my_shift_id}",
+                    # Key must change if shift changes to avoid stale data
+                    key=f"att_editor_{selected_region_mp}_{target_shift_id}",
                     column_config={
                         "ID": st.column_config.NumberColumn(disabled=True),
                         "Name": st.column_config.TextColumn(disabled=True),
@@ -329,12 +349,12 @@ def supervisor_view_manpower():
                 if st.form_submit_button("💾 Submit Attendance"):
                     batch_cmds = []
                     for i, row in edited_att.iterrows():
-                        # 1. Delete Existing
+                        # 1. Delete Existing using TARGET SHIFT ID (where the record belongs)
                         batch_cmds.append(("DELETE FROM attendance WHERE worker_id=:wid AND date=:d AND shift_id=:sid", 
-                                           {"wid": row['ID'], "d": date_str, "sid": my_shift_id}))
+                                           {"wid": row['ID'], "d": date_str, "sid": target_shift_id}))
                         # 2. Insert New
                         batch_cmds.append(("INSERT INTO attendance (worker_id, date, shift_id, status, notes, supervisor) VALUES (:wid, :d, :sid, :s, :n, :sup)",
-                                           {"wid": row['ID'], "d": date_str, "sid": my_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
+                                           {"wid": row['ID'], "d": date_str, "sid": target_shift_id, "s": row['Status'], "n": row['Notes'], "sup": user['name']}))
                     
                     if run_batch_action(batch_cmds):
                         st.toast(f"Attendance recorded for {len(edited_att)} workers on {date_str}!", icon="✅")
