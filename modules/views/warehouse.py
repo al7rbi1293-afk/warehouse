@@ -1,5 +1,6 @@
 
 import streamlit as st
+import pandas as pd
 import time
 from modules.database import run_query, run_action, run_batch_action
 from modules.config import TEXT as txt, CATS_EN, LOCATIONS, EXTERNAL_PROJECTS, AREAS
