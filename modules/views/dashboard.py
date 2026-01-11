@@ -51,9 +51,9 @@ def manager_dashboard():
         else: st.info("No worker data")
         
     with c2:
-        st.subheader("📦 Stock Value by Category (NTCC)")
+        st.subheader("📦 Stock Value by Category (NSTC)")
         # Assuming value is just qty for now as we don't have price
-        stock = run_query("SELECT category, sum(qty) as total_qty FROM inventory WHERE location='NTCC' GROUP BY category")
+        stock = run_query("SELECT category, sum(qty) as total_qty FROM inventory WHERE location='NSTC' GROUP BY category")
         if not stock.empty:
             fig = px.bar(stock, x='category', y='total_qty', color='category')
             st.plotly_chart(fig, use_container_width=True)

@@ -29,9 +29,10 @@ def transfer_stock(item_name, qty, user, unit):
     qty = int(qty)
     ok, msg = update_central_stock(item_name, "SNC", -qty, user, "Transfer Out", unit)
     if not ok: return False, msg
-    df = run_query("SELECT * FROM inventory WHERE name_en = :n AND location = 'NTCC'", params={"n": item_name}, ttl=0)
-    if df.empty: run_action("INSERT INTO inventory (name_en, category, unit, qty, location) VALUES (:n, 'Transferred', :u, 0, 'NTCC')", params={"n": item_name, "u": unit})
-    ok2, msg2 = update_central_stock(item_name, "NTCC", qty, user, "Transfer In", unit)
+    if not ok: return False, msg
+    df = run_query("SELECT * FROM inventory WHERE name_en = :n AND location = 'NSTC'", params={"n": item_name}, ttl=0)
+    if df.empty: run_action("INSERT INTO inventory (name_en, category, unit, qty, location) VALUES (:n, 'Transferred', :u, 0, 'NSTC')", params={"n": item_name, "u": unit})
+    ok2, msg2 = update_central_stock(item_name, "NSTC", qty, user, "Transfer In", unit)
     if not ok2: return False, msg2
     return True, "Transfer Complete"
 

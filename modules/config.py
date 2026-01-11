@@ -2,7 +2,7 @@
 # Constants and Configuration
 
 CATS_EN = ["Electrical", "Chemical", "Hand Tools", "Consumables", "Safety", "Others"]
-LOCATIONS = ["NTCC", "SNC"]
+LOCATIONS = ["NSTC", "SNC"]
 EXTERNAL_PROJECTS = ["KASCH", "KAMC", "KSSH Altaif"]
 AREAS = [
     "OPD", "Imeging", "Neurodiangnostic", "E.R", 

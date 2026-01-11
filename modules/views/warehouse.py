@@ -7,7 +7,7 @@ from modules.config import TEXT as txt, CATS_EN, LOCATIONS, EXTERNAL_PROJECTS, A
 from modules.utils import convert_df_to_excel
 from modules.inventory_logic import (
     get_inventory, update_central_stock, get_local_inventory_by_item, 
-    update_local_inventory, update_request_details, delete_request
+    update_local_inventory, update_request_details, delete_request, transfer_stock
 )
 from modules.views.common import render_bulk_stock_take
 
@@ -34,10 +34,38 @@ def manager_view_warehouse():
                         st.toast("Item Added Successfully!", icon="📦")
                         st.rerun()
                     else: st.error("Exists")
-        st.divider()
+                    else: st.error("Exists")
+        
+        with st.expander("🔄 Internal Stock Transfer (SNC ➡️ NSTC)", expanded=False):
+            st.caption("Pull stock from SNC warehouse to NSTC warehouse.")
+            snc_inv = get_inventory("SNC")
+            if not snc_inv.empty:
+                with st.form("internal_transfer_form"):
+                    c1, c2 = st.columns([3, 1])
+                    t_item = c1.selectbox("Select Item from SNC", snc_inv['name_en'].unique())
+                    t_qty = c2.number_input("Transfer Qty", 1, 10000)
+                    
+                    if st.form_submit_button("Execute Transfer", use_container_width=True):
+                         # Get item unit
+                        row = snc_inv[snc_inv['name_en'] == t_item].iloc[0]
+                        current_snc_qty = row['qty']
+                        
+                        if t_qty <= current_snc_qty:
+                            res, msg = transfer_stock(t_item, t_qty, st.session_state.user_info['name'], row['unit'])
+                            if res: 
+                                st.balloons()
+                                st.success(f"Transferred {t_qty} of {t_item} from SNC to NSTC")
+                                time.sleep(1)
+                                st.rerun()
+                            else: st.error(msg)
+                        else:
+                            st.error(f"Insufficient stock in SNC. Available: {current_snc_qty}")
+            else:
+                st.info("SNC Inventory is empty.")
+
         # Optimization: Use tabs for locations to avoid rendering both tables at once unless needed
-        st_tabs = st.tabs(["NTCC Stock", "SNC Stock"])
-        with st_tabs[0]: render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "mgr")
+        st_tabs = st.tabs(["NSTC Stock", "SNC Stock"])
+        with st_tabs[0]: render_bulk_stock_take("NSTC", st.session_state.user_info['name'], "mgr")
         with st_tabs[1]: render_bulk_stock_take("SNC", st.session_state.user_info['name'], "mgr")
 
     elif view_option == txt['ext_tab']: # External
@@ -143,7 +171,7 @@ def manager_view_warehouse():
                             # Pre-fetch inventory to avoid queries in loop
                             inv_items = edited_df['item_name'].unique().tolist()
                             if inv_items:
-                                stock_data = run_query("SELECT name_en, qty FROM inventory WHERE location='NTCC'")
+                                stock_data = run_query("SELECT name_en, qty FROM inventory WHERE location='NSTC'")
                                 stock_map = {row['name_en']: row['qty'] for _, row in stock_data.iterrows()}
                             else:
                                 stock_map = {}
@@ -208,7 +236,7 @@ def manager_view_warehouse():
 def storekeeper_view():
     st.header(txt['storekeeper_role'])
     st.caption("Manage requests and inventory")
-    view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NTCC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
+    view_option = st.radio("Navigate", [txt['approved_reqs'], "📋 Issued Today", "NSTC Stock Take", "SNC Stock Take"], horizontal=True, label_visibility="collapsed")
     
     if view_option == txt['approved_reqs']: # Bulk Issue
         # Optimized Query: Select only needed columns
@@ -258,11 +286,11 @@ def storekeeper_view():
                                         unit = row['unit']
                                         
                                         batch_cmds.append((
-                                            "UPDATE inventory SET qty = qty - :q, last_updated=NOW() WHERE name_en=:n AND location='NTCC'",
+                                            "UPDATE inventory SET qty = qty - :q, last_updated=NOW() WHERE name_en=:n AND location='NSTC'",
                                             {"q": iq, "n": item}
                                         ))
                                         batch_cmds.append((
-                                            "INSERT INTO stock_logs (log_date, action_by, action_type, item_name, location, change_amount, new_qty, unit) VALUES (NOW(), :u, :t, :n, 'NTCC', :c, (SELECT qty FROM inventory WHERE name_en=:n AND location='NTCC') - :q, :un)",
+                                            "INSERT INTO stock_logs (log_date, action_by, action_type, item_name, location, change_amount, new_qty, unit) VALUES (NOW(), :u, :t, :n, 'NSTC', :c, (SELECT qty FROM inventory WHERE name_en=:n AND location='NSTC') - :q, :un)",
                                             {"n": item, "c": -iq, "u": st.session_state.user_info['name'], "t": f"Issued {region}", "un": unit, "q": iq}
                                         ))
                                         
@@ -287,8 +315,8 @@ def storekeeper_view():
         if today_log.empty: st.info("Nothing issued today yet.")
         else: st.dataframe(today_log, width="stretch")
 
-    elif view_option == "NTCC Stock Take":
-        render_bulk_stock_take("NTCC", st.session_state.user_info['name'], "sk")
+    elif view_option == "NSTC Stock Take":
+        render_bulk_stock_take("NSTC", st.session_state.user_info['name'], "sk")
     elif view_option == "SNC Stock Take":
         render_bulk_stock_take("SNC", st.session_state.user_info['name'], "sk")
 
@@ -309,7 +337,7 @@ def supervisor_view_warehouse():
     if view_option == txt['req_form']: # Bulk Request
         st.markdown(f"### 🛒 Bulk Order Form ({selected_region_wh})")
         
-        inv = get_inventory("NTCC")
+        inv = get_inventory("NSTC")
         if not inv.empty:
             inv_df = inv[['name_en', 'category', 'unit']].copy() 
             inv_df.rename(columns={'name_en': 'Item Name'}, inplace=True)
