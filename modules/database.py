@@ -4,27 +4,36 @@ import pandas as pd
 from sqlalchemy import text
 
 # Database Connection
+# Lazy loading to prevent import errors and st.stop() at module level
+_conn = None
+
 def get_connection():
+    global _conn
+    if _conn is not None:
+        return _conn
     try:
-        return st.connection("supabase", type="sql")
+        _conn = st.connection("supabase", type="sql")
+        return _conn
     except Exception as e:
         st.error(f"⚠️ Connection Error: {e}")
-        st.stop()
-
-conn = get_connection()
+        return None
 
 def run_query(query, params=None, ttl=600):
+    c = get_connection()
+    if not c: return pd.DataFrame()
     try: 
         # Caching strategy: Default strict cache (10 mins) for extreme speed.
         # Writes will auto-invalidate via st.cache_data.clear()
-        return conn.query(query, params=params, ttl=ttl)
+        return c.query(query, params=params, ttl=ttl)
     except Exception as e: 
         st.error(f"DB Error: {e}")
         return pd.DataFrame()
 
 def run_action(query, params=None):
+    c = get_connection()
+    if not c: return False
     try:
-        with conn.session as session:
+        with c.session as session:
             session.execute(text(query) if isinstance(query, str) else query, params)
             session.commit()
             st.cache_data.clear() # Auto-invalidate cache on write
@@ -38,9 +47,11 @@ def run_batch_action(actions):
     Executes a list of (query, params) tuples in a single transaction.
     actions: list of (query_string, params_dict)
     """
+    c = get_connection()
+    if not c: return False
     try:
         with st.spinner("Processing..."):
-            with conn.session as session:
+            with c.session as session:
                 for q, p in actions:
                     session.execute(text(q), p)
                 session.commit()
