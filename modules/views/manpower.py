@@ -19,7 +19,7 @@ def manager_view_manpower():
         st.subheader("Manage Workers")
         
         # Search box for workers
-        worker_search = st.text_input("🔍 بحث في العمال", placeholder="ابحث بالاسم أو رقم الموظف...")
+        worker_search = st.text_input("🔍 Search Workers", placeholder="Search by name or employee ID...")
         
         # Optimization: Cache worker list for 10 seconds to avoid reload flicker but keep fresh enough
         # Join with shifts to get simple name

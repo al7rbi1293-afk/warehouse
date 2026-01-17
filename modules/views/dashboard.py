@@ -8,7 +8,7 @@ from modules.config import AREAS
 @st.fragment(run_every=30)  # Auto-refresh every 30 seconds
 def manager_dashboard():
     st.header("📊 Executive Dashboard")
-    st.caption("🔄 يتحدث تلقائياً كل 30 ثانية")
+    st.caption("🔄 Auto-refreshes every 30 seconds")
     
     # --- Top Metrics Row ---
     col1, col2, col3, col4 = st.columns(4)
@@ -40,7 +40,7 @@ def manager_dashboard():
     
     # Show low stock details if any
     if ls_count > 0:
-        with st.expander(f"🚨 تفاصيل المخزون المنخفض ({ls_count} عنصر)", expanded=True):
+        with st.expander(f"🚨 Low Stock Details ({ls_count} items)", expanded=True):
             st.dataframe(low_stock, use_container_width=True, hide_index=True)
     
     st.divider()

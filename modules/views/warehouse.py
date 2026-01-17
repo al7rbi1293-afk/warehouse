@@ -21,7 +21,7 @@ def manager_view_warehouse():
     
     if view_option == "📦 Stock Management": # Stock
         # Search box
-        search_term = st.text_input("🔍 بحث في المخزون", placeholder="اكتب اسم العنصر للبحث...")
+        search_term = st.text_input("🔍 Search Inventory", placeholder="Type item name to search...")
         
         with st.expander(txt['create_item_title'], expanded=False):
             with st.form("create_item_form", clear_on_submit=True):
@@ -265,15 +265,15 @@ def manager_view_warehouse():
             st.download_button("📥 Export Stock Logs", convert_df_to_excel(logs, "StockLogs"), "stock_logs.xlsx")
 
     elif view_option == "🔍 Audit": # Audit Log
-        st.subheader("🔍 سجل التدقيق (Audit Log)")
-        st.caption("تتبع جميع الإجراءات في النظام")
+        st.subheader("🔍 Audit Log")
+        st.caption("Track all system activities")
         
         audit_logs = run_query("SELECT timestamp, user_name, action, details, module FROM audit_logs ORDER BY timestamp DESC LIMIT 200")
         if not audit_logs.empty:
             st.dataframe(audit_logs, use_container_width=True, hide_index=True)
-            st.download_button("📥 تصدير السجل", convert_df_to_excel(audit_logs, "AuditLog"), "audit_log.xlsx")
+            st.download_button("📥 Export Log", convert_df_to_excel(audit_logs, "AuditLog"), "audit_log.xlsx")
         else:
-            st.info("لا توجد سجلات بعد")
+            st.info("No audit records yet")
 
 # ==========================================
 # ============ STOREKEEPER VIEW ============
