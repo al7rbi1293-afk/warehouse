@@ -177,4 +177,6 @@ def init_db():
         run_action("ALTER TABLE stock_logs ADD COLUMN IF NOT EXISTS unit TEXT;")
         run_action("ALTER TABLE stock_logs ADD COLUMN IF NOT EXISTS new_qty INTEGER;")
         run_action("ALTER TABLE stock_logs ADD COLUMN IF NOT EXISTS user_name TEXT;")
-    except: pass
+    except Exception as e:
+        # Log migration errors but don't crash - these are often just "column already exists"
+        print(f"[DB Migration] Non-critical warning: {e}")

@@ -2,6 +2,8 @@
 import streamlit as st
 import time
 from modules.inventory_logic import get_inventory, update_central_stock
+from modules.database import run_batch_action, get_connection
+from sqlalchemy import text
 
 @st.fragment
 def render_bulk_stock_take(location, user_name, key_prefix):
@@ -32,17 +34,36 @@ def render_bulk_stock_take(location, user_name, key_prefix):
     )
 
     if st.button(f"💾 Update {location} Stock", key=f"btn_update_{key_prefix}_{location}"):
+        # Collect all changes for batch processing (performance optimization)
+        batch_cmds = []
         changes_count = 0
+        
         for index, row in edited_df.iterrows():
             sys_q = int(row['System Qty'])
             phy_q = int(row['Physical Count'])
             if sys_q != phy_q:
                 diff = phy_q - sys_q
-                update_central_stock(row['Item Name'], location, diff, user_name, "Stock Take", row['unit'])
+                item_name = row['Item Name']
+                unit = row['unit']
+                
+                # Update inventory
+                batch_cmds.append((
+                    "UPDATE inventory SET qty = qty + :diff, last_updated = NOW() WHERE name_en = :name AND location = :loc",
+                    {"diff": diff, "name": item_name, "loc": location}
+                ))
+                # Log the change
+                batch_cmds.append((
+                    "INSERT INTO stock_logs (log_date, action_by, action_type, item_name, location, change_amount, new_qty, unit) VALUES (NOW(), :u, 'Stock Take', :item, :loc, :diff, :nq, :unit)",
+                    {"u": user_name, "item": item_name, "loc": location, "diff": diff, "nq": phy_q, "unit": unit}
+                ))
                 changes_count += 1
         
         if changes_count > 0:
-            st.toast(f"✅ Updated {changes_count} items in {location}!")
-            time.sleep(1); st.rerun()
+            if run_batch_action(batch_cmds):
+                st.toast(f"✅ Updated {changes_count} items in {location}!")
+                time.sleep(1); st.rerun()
+            else:
+                st.error("Failed to update stock. Please try again.")
         else:
             st.info("No changes detected.")
+

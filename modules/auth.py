@@ -1,20 +1,35 @@
 
 import hashlib
+import bcrypt
 import streamlit as st
 from modules.database import run_query, run_action
 
-def hash_password(password):
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt with auto-generated salt (secure for passwords)."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def hash_password_sha256(password: str) -> str:
+    """Legacy SHA256 hash - for backward compatibility only."""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def verify_password(stored_password, provided_password):
-    # Check if stored password is hashed (SHA256 hex digest is 64 chars)
-    # This is a basic check. For better robustness, we could use a prefix or separate column.
+def verify_password(stored_password: str, provided_password: str) -> bool:
+    """
+    Verify password against stored hash.
+    Supports: bcrypt (new), SHA256 (legacy), plain text (very old legacy)
+    """
+    # 1. Try bcrypt first (new secure format - starts with $2b$ or $2a$)
+    if stored_password.startswith('$2'):
+        try:
+            return bcrypt.checkpw(provided_password.encode(), stored_password.encode())
+        except Exception:
+            return False
     
-    # Try comparing with hash
-    if stored_password == hash_password(provided_password):
-        return True
+    # 2. Try SHA256 (legacy - 64 character hex string)
+    if len(stored_password) == 64:
+        if stored_password == hash_password_sha256(provided_password):
+            return True
     
-    # Legacy Fallback: Check plain text (if migration hasn't happened yet)
+    # 3. Plain text fallback (very old legacy)
     if stored_password == provided_password:
         return True
         
