@@ -10,6 +10,7 @@ from modules.utils import convert_df_to_excel
 # ==========================================
 # ============ MANAGER VIEW (MANPOWER) =====
 # ==========================================
+@st.fragment
 def manager_view_manpower():
     st.header("👷‍♂️ Manpower Project Management")
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Reports", "👥 Worker Database", "⏰ Duty Roster / Shifts", "📍 Supervisors"])
@@ -31,7 +32,6 @@ def manager_view_manpower():
         
         # Add Worker
         with st.expander("➕ Add New Worker", expanded=True):
-            @st.fragment
             def render_add_worker_form():
                 with st.form("add_worker_form", clear_on_submit=True):
                     c1, c2, c3, c4, c5 = st.columns(5)
@@ -74,7 +74,6 @@ def manager_view_manpower():
             
             template_data = pd.DataFrame(columns=["Name", "EMP ID", "Role", "Region", "Shift"])
             
-            @st.fragment
             def render_bulk_worker_add(init_df, shift_options):
                 edited_bulk = st.data_editor(
                     init_df,
@@ -117,7 +116,6 @@ def manager_view_manpower():
             shifts_lookup = shift_opts
             shift_names_list = list(shifts_lookup.keys())
 
-            @st.fragment
             def render_worker_edit(w_df, s_lookup, s_names_list):
                 edited_w = st.data_editor(
                     w_df,
@@ -263,6 +261,7 @@ def manager_view_manpower():
 # ==========================================
 # ============ SUPERVISOR VIEW (MANPOWER) ==
 # ==========================================
+@st.fragment
 def supervisor_view_manpower():
     user = st.session_state.user_info
     my_regions = user['region'].split(",") if "," in user['region'] else [user['region']]

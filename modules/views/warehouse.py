@@ -14,6 +14,7 @@ from modules.views.common import render_bulk_stock_take
 # ==========================================
 # ============ MANAGER VIEW (WH) ===========
 # ==========================================
+@st.fragment
 def manager_view_warehouse():
     st.header(txt['manager_role'])
     view_option = st.radio("Navigate", ["📦 Stock Management", txt['ext_tab'], "⏳ Bulk Review", txt['local_inv'], "📜 Logs"], horizontal=True, label_visibility="collapsed")
@@ -34,7 +35,6 @@ def manager_view_warehouse():
                         st.toast("Item Added Successfully!", icon="📦")
                         st.rerun()
                     else: st.error("Exists")
-
         
         with st.expander("🔄 Internal Stock Transfer (SNC ➡️ NSTC)", expanded=False):
             st.caption("Pull stock from SNC warehouse to NSTC warehouse.")
@@ -162,7 +162,7 @@ def manager_view_warehouse():
         # Cache this query for 10s to avoid instant flicker but reduce load
         reqs = run_query("SELECT req_id, request_date, region, supervisor_name, item_name, qty, unit, notes FROM requests WHERE status='Pending' ORDER BY region, request_date DESC")
 
-        @st.fragment
+        # Nested fragment is redundant if parent is fragment, but permissible. Logic for reuse kept.
         def render_manager_bulk_review(requests_df):
             regions = requests_df['region'].unique()
             region_tabs = st.tabs(list(regions))
@@ -263,6 +263,7 @@ def manager_view_warehouse():
 # ==========================================
 # ============ STOREKEEPER VIEW ============
 # ==========================================
+@st.fragment
 def storekeeper_view():
     st.header(txt['storekeeper_role'])
     st.caption("Manage requests and inventory")
@@ -272,7 +273,6 @@ def storekeeper_view():
         # Optimized Query: Select only needed columns
         reqs = run_query("SELECT req_id, region, item_name, qty, unit, notes, status FROM requests WHERE status='Approved'")
         
-        @st.fragment
         def render_storekeeper_bulk_issue(reqs_df):
             regions = reqs_df['region'].unique()
             if len(regions) > 0:
@@ -353,6 +353,7 @@ def storekeeper_view():
 # ==========================================
 # ============ SUPERVISOR VIEW (WH) ========
 # ==========================================
+@st.fragment
 def supervisor_view_warehouse():
     user = st.session_state.user_info
     # Handle multiple regions
