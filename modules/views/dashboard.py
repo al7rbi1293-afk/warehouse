@@ -52,12 +52,13 @@ def manager_dashboard():
         else: st.info("No worker data")
         
     with c2:
-        st.subheader("📦 Stock Value by Category (NSTC)")
-        # Assuming value is just qty for now as we don't have price
-        stock = run_query("SELECT category, sum(qty) as total_qty FROM inventory WHERE location='NSTC' GROUP BY category")
+        st.subheader("📦 Top 10 Stock Items (NSTC)")
+        # Show top 10 items by quantity
+        stock = run_query("SELECT name_en as item, qty FROM inventory WHERE location='NSTC' ORDER BY qty DESC LIMIT 10")
         if not stock.empty:
-            fig = px.bar(stock, x='category', y='total_qty', color='category')
-            st.plotly_chart(fig, width="stretch")
+            fig = px.bar(stock, x='item', y='qty', color='qty', color_continuous_scale='Blues')
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
         else: st.info("No stock data")
 
     # --- Charts Row 2 ---
